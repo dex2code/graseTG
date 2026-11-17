@@ -1,5 +1,7 @@
 # graseTG
 
+[![CI](https://github.com/dex2code/graseTG/actions/workflows/ci.yml/badge.svg)](https://github.com/dex2code/graseTG/actions/workflows/ci.yml)
+
 A family Telegram bot: answers questions in whitelisted group chats via an LLM.
 
 ## How it works
