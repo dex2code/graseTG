@@ -38,7 +38,7 @@ async def run_bot() -> None:
             "Подключение к Telegram через HTTP-прокси: %s",
             _masked_proxy(config.secrets.telegram_proxy_url),
         )
-    bot = Bot(token=config.secrets.bot_token, session=session)
+    bot = Bot(token=config.secrets.bot_token.get_secret_value(), session=session)
     try:
         me = await bot.get_me()
     except TelegramUnauthorizedError:

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -19,8 +19,8 @@ class Secrets(BaseSettings):
         extra="ignore",
     )
 
-    bot_token: str
-    llm_api_key: str
+    bot_token: SecretStr
+    llm_api_key: SecretStr
     llm_base_url: str
     # HTTP-прокси для Telegram API, опционально. Пусто — прямое подключение.
     telegram_proxy_url: str = ""

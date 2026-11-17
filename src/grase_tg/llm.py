@@ -13,7 +13,7 @@ EMPTY_ANSWER = "Модель вернула пустой ответ."
 
 def make_client(config: Config) -> AsyncOpenAI:
     return AsyncOpenAI(
-        api_key=config.secrets.llm_api_key,
+        api_key=config.secrets.llm_api_key.get_secret_value(),
         base_url=config.secrets.llm_base_url,
         timeout=config.app.llm.timeout_seconds,
     )
