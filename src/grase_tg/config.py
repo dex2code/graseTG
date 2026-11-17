@@ -55,4 +55,6 @@ def load_config() -> Config:
     yaml_path = BASE_DIR / "config.yaml"
     if yaml_path.exists():
         raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    return Config(secrets=Secrets(), app=AppConfig.model_validate(raw))
+    # pydantic-settings подставляет значения из .env в рантайме, но pyright об этом
+    # не знает и считает аргументы Secrets() пропущенными — ложное срабатывание.
+    return Config(secrets=Secrets(), app=AppConfig.model_validate(raw))  # pyright: ignore[reportCallIssue]
