@@ -3,7 +3,10 @@
 import asyncio
 import logging
 
+from urllib.parse import urlsplit
+
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramUnauthorizedError
 
 from .config import load_config
@@ -13,13 +16,29 @@ from .llm import make_client
 logger = logging.getLogger(__name__)
 
 
+def _masked_proxy(proxy_url: str) -> str:
+    """Прокси-адрес для логов: пароль и логин не светим."""
+    parts = urlsplit(proxy_url)
+    if parts.username is None:
+        return proxy_url
+    netloc = f"{parts.hostname or ''}:{parts.port or ''}"
+    return f"{parts.scheme}://{netloc}"
+
+
 async def run_bot() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     config = load_config()
-    bot = Bot(token=config.secrets.bot_token)
+    session = None
+    if config.secrets.telegram_proxy_url:
+        session = AiohttpSession(proxy=config.secrets.telegram_proxy_url)
+        logger.info(
+            "Подключение к Telegram через HTTP-прокси: %s",
+            _masked_proxy(config.secrets.telegram_proxy_url),
+        )
+    bot = Bot(token=config.secrets.bot_token, session=session)
     try:
         me = await bot.get_me()
     except TelegramUnauthorizedError:

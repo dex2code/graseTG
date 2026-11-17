@@ -22,6 +22,8 @@ class Secrets(BaseSettings):
     bot_token: str
     llm_api_key: str
     llm_base_url: str
+    # HTTP-прокси для Telegram API, опционально. Пусто — прямое подключение.
+    telegram_proxy_url: str = ""
 
 
 class LlmSettings(BaseModel):

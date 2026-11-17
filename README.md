@@ -14,7 +14,10 @@
 1. **Секреты** — скопируй `.env.example` в `.env` и заполни:
    - `BOT_TOKEN` — токен от [@BotFather](https://t.me/BotFather);
    - `LLM_BASE_URL` — адрес OpenAI-совместимого API (обычно заканчивается на `/v1`);
-   - `LLM_API_KEY` — ключ доступа.
+   - `LLM_API_KEY` — ключ доступа;
+   - `TELEGRAM_PROXY_URL` — (необязательно) HTTP-прокси для Telegram:
+     `http://proxy.local:8080` или с авторизацией `http://логин:пароль@proxy.local:8080`.
+     Прокси действует только на трафик к Telegram; запросы к LLM идут напрямую.
 2. **Настройки** — `config.yaml`:
    - `allowed_chat_ids` — ID разрешённых групп;
    - `llm.model` — имя модели на твоём backend'е;
