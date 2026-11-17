@@ -2,6 +2,7 @@
 
 import json
 import threading
+from typing import Any, Callable, cast
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from pydantic import SecretStr
 
 from grase_tg.config import AppConfig, Config, Secrets
 from grase_tg.handlers import build_router
+from grase_tg.llm import make_client
 
 BOT_USERNAME = "family_bot"
 BOT_MENTION = f"@{BOT_USERNAME}"
@@ -83,8 +85,10 @@ class FakeMessage:
 
 
 @pytest.fixture
-def make_message():
-    """Factory fixture for FakeMessage."""
+def make_message() -> Callable[..., Any]:
+    """Factory for duck-typed messages. Typed as Any: fakes intentionally
+    implement only the attributes the bot touches, so strict Message typing
+    does not apply to them."""
     return FakeMessage
 
 
@@ -104,7 +108,8 @@ def config() -> Config:
 @pytest.fixture
 def handler(config):
     """The inner message handler extracted from the built router."""
-    router = build_router(config, llm_client=None, bot_username=BOT_USERNAME)
+    # A real client is fine here: every test that reaches ask_llm monkeypatches it.
+    router = build_router(config, make_client(config), bot_username=BOT_USERNAME)
     return router.observers["message"].handlers[0].callback
 
 
@@ -120,7 +125,7 @@ class StubLLMServer:
 
     @property
     def base_url(self) -> str:
-        host, port = self._server.server_address
+        host, port = cast(tuple[str, int], self._server.server_address)
         return f"http://{host}:{port}/v1"
 
     def _make_handler(self):
@@ -152,7 +157,7 @@ class StubLLMServer:
                 self.end_headers()
                 self.wfile.write(resp)
 
-            def log_message(self, *args):
+            def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - base class name
                 pass  # keep test output clean
 
         return Handler

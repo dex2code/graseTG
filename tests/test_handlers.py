@@ -7,7 +7,7 @@ import pytest
 from aiogram.types import Chat, Message
 
 import grase_tg.handlers as handlers_module
-from conftest import BOT_USERNAME, BOT_MENTION, FakeMessage, mention_entities_for
+from conftest import BOT_USERNAME, BOT_MENTION, mention_entities_for
 
 from grase_tg.handlers import AllowedChatsFilter, split_text
 
@@ -54,13 +54,13 @@ async def test_filter_rejects_unknown_chat_and_logs_once(caplog):
 
 # --- routing through the handler ---
 
-async def test_text_question_goes_to_llm_pipeline(handler, monkeypatch):
+async def test_text_question_goes_to_llm_pipeline(handler, make_message, monkeypatch):
     async def ok(client, cfg, question):
         return "A" * 9000  # forces chunking
 
     monkeypatch.setattr(handlers_module, "ask_llm", ok)
     text = f"{BOT_MENTION} how to cook?"
-    m = FakeMessage(text, mention_entities_for(text))
+    m = make_message(text, mention_entities_for(text))
     await handler(m)
     assert m.sent == ["Got it, thinking…"]
     ack = m.acks[0]
@@ -68,43 +68,43 @@ async def test_text_question_goes_to_llm_pipeline(handler, monkeypatch):
     assert ack.replies == ["A" * 4096, "A" * 808]
 
 
-async def test_llm_failure_edits_ack_with_error_text(handler, monkeypatch):
+async def test_llm_failure_edits_ack_with_error_text(handler, make_message, monkeypatch):
     async def fail(client, cfg, question):
         raise RuntimeError("LLM down")
 
     monkeypatch.setattr(handlers_module, "ask_llm", fail)
     text = f"{BOT_MENTION} hi"
-    m = FakeMessage(text, mention_entities_for(text))
+    m = make_message(text, mention_entities_for(text))
     await handler(m)
     assert m.sent == ["Got it, thinking…"]
     assert m.acks[0].edits == ["Failed to get a response from the model. Please try again later."]
     assert m.acks[0].replies == []
 
 
-async def test_mention_without_question_gets_format_hint(handler):
-    m = FakeMessage(BOT_MENTION, mention_entities_for(BOT_MENTION))
+async def test_mention_without_question_gets_format_hint(handler, make_message):
+    m = make_message(BOT_MENTION, mention_entities_for(BOT_MENTION))
     await handler(m)
     assert m.sent == [handlers_module.FORMAT_HINT.format(username=BOT_USERNAME)]
 
 
-async def test_unaddressed_messages_are_silent(handler):
+async def test_unaddressed_messages_are_silent(handler, make_message):
     for m in (
-        FakeMessage("plain chatter"),
-        FakeMessage(photo=True, caption="just a photo"),
-        FakeMessage(voice=True),
-        FakeMessage(sticker=True),
+        make_message("plain chatter"),
+        make_message(photo=True, caption="just a photo"),
+        make_message(voice=True),
+        make_message(sticker=True),
     ):
         await handler(m)
         assert not m.sent
 
 
-async def test_addressed_photo_gets_photo_stub(handler, monkeypatch):
+async def test_addressed_photo_gets_photo_stub(handler, make_message, monkeypatch):
     async def boom(client, cfg, question):  # the stub path must not touch the LLM
         raise AssertionError("LLM must not be called for stubs")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
     caption = f"{BOT_MENTION} what is this?"
-    m = FakeMessage(photo=True, caption=caption, caption_entities=mention_entities_for(caption))
+    m = make_message(photo=True, caption=caption, caption_entities=mention_entities_for(caption))
     await handler(m)
     assert m.sent == [handlers_module.PHOTO_STUB_TEXT]
 
@@ -118,11 +118,11 @@ async def test_addressed_photo_gets_photo_stub(handler, monkeypatch):
         ("something_new", handlers_module.OTHER_STUB_TEXT),  # fallback for kinds without a handler
     ],
 )
-async def test_stub_routing_by_kind(handler, monkeypatch, kind, expected):
+async def test_stub_routing_by_kind(handler, make_message, monkeypatch, kind, expected):
     # Dormant kinds cannot be produced by extractors yet — inject directly to test the routing table.
     from grase_tg.content import Question
 
     monkeypatch.setattr(handlers_module, "extract_question", lambda m, u: Question(kind=kind, text=""))
-    m = FakeMessage()
+    m = make_message()
     await handler(m)
     assert m.sent == [expected]

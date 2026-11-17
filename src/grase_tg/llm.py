@@ -1,6 +1,7 @@
 """Calls to the OpenAI-compatible backend."""
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionMessageParam
 
 from .config import Config
 from .content import Question
@@ -16,7 +17,7 @@ def make_client(config: Config) -> AsyncOpenAI:
     )
 
 
-def _build_messages(config: Config, question: Question) -> list[dict[str, str]]:
+def _build_messages(config: Config, question: Question) -> list[ChatCompletionMessageParam]:
     """Build the chat/completions payload.
 
     Extensible by question.kind: only plain text is implemented for now;
@@ -24,10 +25,11 @@ def _build_messages(config: Config, question: Question) -> list[dict[str, str]]:
     """
     if question.kind != "text":
         raise NotImplementedError(f"No request builder for content kind '{question.kind}'")
-    return [
+    messages: list[ChatCompletionMessageParam] = [
         {"role": "system", "content": config.app.system_prompt},
         {"role": "user", "content": question.text},
     ]
+    return messages
 
 
 async def ask_llm(client: AsyncOpenAI, config: Config, question: Question) -> str:
