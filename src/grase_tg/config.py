@@ -15,9 +15,9 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 class Secrets(BaseModel):
     """Secrets, collected from the OS environment and the project-root .env file."""
 
-    bot_token: SecretStr       # bot token from @BotFather
-    llm_api_key: SecretStr     # key for the OpenAI-compatible API
-    llm_base_url: str          # API base URL, usually ends with /v1
+    bot_token: SecretStr  # bot token from @BotFather
+    llm_api_key: SecretStr  # key for the OpenAI-compatible API
+    llm_base_url: str  # API base URL, usually ends with /v1
     # Optional HTTP proxy for the Telegram API. Empty value = direct connection.
     telegram_proxy_url: str = ""
 
@@ -25,10 +25,10 @@ class Secrets(BaseModel):
 class LlmSettings(BaseModel):
     """Parameters for calls to the OpenAI-compatible backend."""
 
-    model: str = "gpt-5-mini"                  # model name on the backend
-    temperature: float = 0.7                   # creativity: 0 = deterministic, higher = more varied
-    max_tokens: int = 1024                     # upper bound for a single answer, in tokens
-    timeout_seconds: float = 60.0              # per-request HTTP timeout
+    model: str = "gpt-5-mini"  # model name on the backend
+    temperature: float = 0.7  # creativity: 0 = deterministic, higher = more varied
+    max_tokens: int = 1024  # upper bound for a single answer, in tokens
+    timeout_seconds: float = 60.0  # per-request HTTP timeout
     # Model "thinking" toggle, sent as chat_template_kwargs={"enable_thinking": ...}
     # (vLLM/SGLang, Qwen3-style models).
     # true / false — send the field; None — do not send it at all
@@ -42,7 +42,10 @@ class AppConfig(BaseModel):
     # Whitelisted group chat ids; messages from other chats are ignored.
     allowed_chat_ids: list[int] = Field(default_factory=list)
     # Default used when config.yaml omits system_prompt.
-    system_prompt: str = "You are an assistant in a family group chat. Answer in User's language: briefly, clearly and to the point."
+    system_prompt: str = (
+        "You are an assistant in a family group chat. "
+        "Answer in User's language: briefly, clearly and to the point."
+    )
     llm: LlmSettings = LlmSettings()
 
 
