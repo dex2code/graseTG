@@ -9,9 +9,9 @@ allowed_chat_ids: []
 # LLM call parameters (OpenAI-compatible backend; URL and key live in .env)
 llm:
   model: gpt-5-mini        # change to your backend's model name
-  temperature: 0.7
-  max_tokens: 1024
-  timeout_seconds: 60
+  temperature: 0.7         # creativity: 0 = deterministic, higher = more varied
+  max_tokens: 1024         # upper bound for a single answer, in tokens
+  timeout_seconds: 60      # give up on a slow model after this
   # Model "thinking" toggle, sent as chat_template_kwargs (vLLM/SGLang, Qwen3-style):
   #   true / false — send the field with this value
   #   null         — do not send the field at all (safest for plain OpenAI APIs)
