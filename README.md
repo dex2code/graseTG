@@ -56,6 +56,13 @@ uv sync          # create .venv and install dependencies
 uv run grase-tg  # start the bot
 ```
 
+## Deploying as a service (systemd)
+
+The repo ships a ready-made unit: `graseTG.service`. It runs the bot via
+`uv run --frozen grase-tg`, restarts on crashes (but stays down after 5 crashes
+per minute), and applies basic hardening. See the header of the unit file for
+the step-by-step deployment checklist.
+
 ## Testing
 
 ```bash

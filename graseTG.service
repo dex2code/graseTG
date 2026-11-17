@@ -1,0 +1,54 @@
+# systemd unit for the graseTG family Telegram bot.
+#
+# Deploy on a Linux server (adjust User and paths to your setup):
+#   1. Put the project into /opt/graseTG and run `uv sync --frozen` there
+#   2. Fill in /opt/graseTG/.env and /opt/graseTG/config.yaml
+#   3. Create the service user: useradd --system --no-create-home grase
+#   4. chown -R grase:grase /opt/graseTG
+#   5. cp graseTG.service /etc/systemd/system/graseTG.service
+#   6. systemctl daemon-reload
+#   7. systemctl enable --now graseTG
+#
+# Logs: journalctl -u graseTG -f
+
+[Unit]
+Description=graseTG - family Telegram bot (whitelisted groups, LLM answers)
+Documentation=https://github.com/dex2code/graseTG
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=grase
+Group=grase
+WorkingDirectory=/opt/graseTG
+
+# Secrets and settings live in the project directory: the bot reads .env and
+# config.yaml itself. The `-` prefix means the unit does not fail when the
+# file is absent (EnvironmentFile here is just for systemd-visible overrides).
+EnvironmentFile=-/opt/graseTG/.env
+Environment=PYTHONUNBUFFERED=1
+
+# --frozen: never resolve or upgrade dependencies on the server, use uv.lock as is.
+# Adjust the uv path if it is not in /usr/local/bin (e.g. ~/.local/bin/uv).
+ExecStart=/usr/local/bin/uv run --frozen grase-tg
+
+# Restart on crashes, but stay down after 5 crashes per minute
+# (e.g. a broken .env) so the problem can be inspected instead of hot-looping.
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# aiogram stops polling on SIGTERM; no need to wait the default 90s.
+TimeoutStopSec=30
+
+# Basic hardening: read-only filesystem except the project directory.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/opt/graseTG
+
+[Install]
+WantedBy=multi-user.target
