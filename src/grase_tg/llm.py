@@ -3,6 +3,7 @@
 from openai import AsyncOpenAI
 
 from .config import Config
+from .content import Question
 
 EMPTY_ANSWER = "The model returned an empty response."
 
@@ -15,7 +16,21 @@ def make_client(config: Config) -> AsyncOpenAI:
     )
 
 
-async def ask_llm(client: AsyncOpenAI, config: Config, question: str) -> str:
+def _build_messages(config: Config, question: Question) -> list[dict[str, str]]:
+    """Build the chat/completions payload.
+
+    Extensible by question.kind: only plain text is implemented for now;
+    multimodal kinds (photo, voice) attach their payloads here later.
+    """
+    if question.kind != "text":
+        raise NotImplementedError(f"No request builder for content kind '{question.kind}'")
+    return [
+        {"role": "system", "content": config.app.system_prompt},
+        {"role": "user", "content": question.text},
+    ]
+
+
+async def ask_llm(client: AsyncOpenAI, config: Config, question: Question) -> str:
     """Ask a single question without chat history and return the answer text."""
     # Model "thinking" toggle (vLLM/SGLang, Qwen3-style). Sent only when
     # enable_thinking is true/false; None means the field is omitted entirely.
@@ -28,10 +43,7 @@ async def ask_llm(client: AsyncOpenAI, config: Config, question: str) -> str:
         max_tokens=config.app.llm.max_tokens,
         # Explicit: we always want one complete response, not an SSE stream.
         stream=False,
-        messages=[
-            {"role": "system", "content": config.app.system_prompt},
-            {"role": "user", "content": question},
-        ],
+        messages=_build_messages(config, question),
         extra_body=extra_body,
     )
     answer = (response.choices[0].message.content or "").strip()
