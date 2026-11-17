@@ -65,8 +65,11 @@ class AllowedChatsFilter(BaseFilter):
 
 
 def split_text(text: str, limit: int = MAX_MESSAGE_LENGTH) -> list[str]:
-    """Split a long answer into chunks that fit into one Telegram message."""
-    return [text[i : i + limit] for i in range(0, len(text), limit)] or [""]
+    """Split an answer into chunks that fit into one Telegram message.
+
+    Precondition: text is non-empty (ask_llm guarantees that).
+    """
+    return [text[i : i + limit] for i in range(0, len(text), limit)]
 
 
 def build_router(config: Config, llm_client: AsyncOpenAI, bot_username: str) -> Router:

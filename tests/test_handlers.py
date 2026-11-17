@@ -27,8 +27,10 @@ def test_split_long_text_into_chunks():
     assert chunks == ["a" * 4096, "a" * 4096, "a" * 1808]
 
 
-def test_split_empty_text_gives_one_empty_chunk():
-    assert split_text("") == [""]
+def test_split_empty_text_gives_no_chunks():
+    # ask_llm never returns empty text (EMPTY_ANSWER fallback), so this cannot
+    # happen in practice; the contract is honest: empty input -> empty output.
+    assert split_text("") == []
 
 
 # --- AllowedChatsFilter ---

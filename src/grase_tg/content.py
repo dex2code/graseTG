@@ -28,8 +28,7 @@ class Question:
 
     kind: str                   # "text", "photo", "audio", "sticker", "other"
     text: str                   # question text (message text or photo caption)
-    image: bytes | None = None  # reserved for future photo support
-    audio: bytes | None = None  # reserved for future voice support
+    image: bytes | None = None  # photo payload, attached by extract_photo in the future
 
 
 def _utf16_to_py_index(text: str, utf16_pos: int) -> int:
