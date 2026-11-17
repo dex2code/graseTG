@@ -1,11 +1,16 @@
 """
 Content extraction: routes messages by content type to per-type extractors.
 
-Each extractor checks whether the bot was addressed in a message of its type
-and returns a normalized Question. Adding a new content type = adding one
-extractor function to EXTRACTORS. Only text questions are answered for now:
-photo is recognized (mention in the caption) but answered with a
-"not supported" hint; other types are silently ignored.
+The bot reacts ONLY to messages addressed to it personally:
+- text: @mention in the message text -> answered (or a format hint);
+- photo: @mention in the caption -> photo stub handler;
+- audio / sticker: extractors are declared but dormant — these types cannot
+  carry an @mention and no other addressing mechanism exists yet;
+- anything else that somehow arrives addressed falls back to kind="other".
+
+Unaddressed messages always produce None -> silence, never a reply.
+Adding a new content type = adding one extractor to EXTRACTORS and a handler
+branch (stub or real) for its kind in handlers.py.
 """
 
 from dataclasses import dataclass
@@ -17,9 +22,9 @@ from aiogram.types import Message
 
 @dataclass(frozen=True)
 class Question:
-    """A question addressed to the bot, normalized across content types."""
+    """Message content, normalized across content types."""
 
-    kind: str                   # "text", "photo", "voice", ...
+    kind: str                   # "text", "photo", "audio", "sticker", "other"
     text: str                   # question text (message text or photo caption)
     image: bytes | None = None  # reserved for future photo support
     audio: bytes | None = None  # reserved for future voice support
@@ -67,7 +72,10 @@ def _question_around(text: str, span: tuple[int, int]) -> str:
 
 
 def extract_text(message: Message, bot_username: str) -> Question | None:
-    """Text messages: the mention lives in the message text."""
+    """Text messages: the mention lives in the message text.
+
+    Returns None when the bot is not mentioned — plain chat must stay silent.
+    """
     span = _find_mention_span(message.text, message.entities, bot_username)
     if span is None:
         return None
@@ -75,10 +83,10 @@ def extract_text(message: Message, bot_username: str) -> Question | None:
 
 
 def extract_photo(message: Message, bot_username: str) -> Question | None:
-    """Photos: the mention can only live in the caption.
+    """Photos: addressed only via an @mention in the caption.
 
-    The image payload is not attached yet — photo questions are recognized
-    (kind="photo") but the answering pipeline rejects them for now.
+    The image payload is not attached yet — an addressed photo is answered
+    with the photo stub; the caption question is kept in Question.text.
     """
     if message.photo is None or message.caption is None:
         return None
@@ -88,17 +96,38 @@ def extract_photo(message: Message, bot_username: str) -> Question | None:
     return Question(kind="photo", text=_question_around(message.caption, span), image=None)
 
 
+def extract_audio(message: Message, bot_username: str) -> Question | None:
+    """Voice notes, audio files and video notes.
+
+    Dormant: audio cannot carry an @mention and no other addressing mechanism
+    (e.g. reply-to-bot) exists yet, so this extractor never fires. It is
+    registered to declare the handler — implement addressing detection here
+    to activate it (the stub handler is already wired in handlers.py).
+    """
+    return None
+
+
+def extract_sticker(message: Message, bot_username: str) -> Question | None:
+    """Stickers: dormant for the same reason as audio (see extract_audio)."""
+    return None
+
+
 # Registry of content extractors, tried in order. Add new content types here.
 Extractor = Callable[[Message, str], Question | None]
 EXTRACTORS: tuple[Extractor, ...] = (
     extract_text,
     extract_photo,
+    extract_audio,
+    extract_sticker,
 )
 
 
 def extract_question(message: Message, bot_username: str) -> Question | None:
-    """Try every extractor in order; return the first Question
-    or None if the bot was not addressed in this message."""
+    """Try every extractor in order.
+
+    Returns the first Question (the message is addressed to the bot) or None
+    for unaddressed messages — the caller must stay silent in that case.
+    """
     for extractor in EXTRACTORS:
         question = extractor(message, bot_username)
         if question is not None:

@@ -1,4 +1,5 @@
-"""Handlers: only whitelisted groups, only messages addressing the bot."""
+"""Handlers: only whitelisted groups; text questions are answered by the LLM,
+every other content type gets a per-type stub reply."""
 
 import logging
 
@@ -24,7 +25,19 @@ FORMAT_HINT = (
 )
 ACK_TEXT = "Got it, thinking…"
 ERROR_TEXT = "Failed to get a response from the model. Please try again later."
-NOT_SUPPORTED_TEXT = "This content type is not supported yet — ask with plain text for now."
+
+# Per-type stub replies (text questions are answered by the real pipeline).
+PHOTO_STUB_TEXT = "I can see the photo, but I can't analyze images yet — ask about it with text."
+AUDIO_STUB_TEXT = "Voice and audio messages are not supported yet — please type your question."
+STICKER_STUB_TEXT = "Nice sticker! I can't reply to stickers meaningfully yet."
+# Fallback for any content type without its own handler.
+OTHER_STUB_TEXT = "This message type is not supported yet — ask me with a text @mention."
+
+STUB_TEXTS = {
+    "photo": PHOTO_STUB_TEXT,
+    "audio": AUDIO_STUB_TEXT,
+    "sticker": STICKER_STUB_TEXT,
+}
 
 
 class AllowedChatsFilter(BaseFilter):
@@ -66,37 +79,38 @@ def build_router(config: Config, llm_client: AsyncOpenAI, bot_username: str) -> 
     async def on_group_message(message: Message) -> None:
         question = extract_question(message, bot_username)
         if question is None:
-            return  # the bot was not addressed — silently ignore
+            return  # not addressed to the bot — silence, per the family-bot contract
 
-        if not question.text:
-            # Addressed, but no question text — explain the format.
-            await message.reply(FORMAT_HINT.format(username=bot_username))
+        if question.kind == "text":
+            if not question.text:
+                # Addressed, but no question text — explain the format.
+                await message.reply(FORMAT_HINT.format(username=bot_username))
+                return
+            logger.info("Question from chat %s: %s", message.chat.id, question.text)
+
+            # Acknowledge immediately, then edit this message with the answer.
+            ack = await message.reply(ACK_TEXT)
+            try:
+                answer = await ask_llm(llm_client, config, question)
+            except Exception:
+                logger.exception("LLM request failed")
+                await ack.edit_text(ERROR_TEXT)
+                return
+
+            # First chunk replaces the ack; the rest follow as replies to it.
+            chunks = split_text(answer)
+            try:
+                await ack.edit_text(chunks[0])
+                for chunk in chunks[1:]:
+                    await ack.reply(chunk)
+            except Exception:
+                logger.exception("Failed to deliver the answer to chat %s", message.chat.id)
             return
 
-        if question.kind != "text":
-            # Recognized content type without an answering implementation yet.
-            logger.info("Unsupported content type '%s' from chat %s", question.kind, message.chat.id)
-            await message.reply(NOT_SUPPORTED_TEXT)
-            return
-
-        logger.info("Question from chat %s: %s", message.chat.id, question.text)
-
-        # Acknowledge immediately, then edit this message with the answer.
-        ack = await message.reply(ACK_TEXT)
-        try:
-            answer = await ask_llm(llm_client, config, question)
-        except Exception:
-            logger.exception("LLM request failed")
-            await ack.edit_text(ERROR_TEXT)
-            return
-
-        # First chunk replaces the ack; the rest follow as replies to it.
-        chunks = split_text(answer)
-        try:
-            await ack.edit_text(chunks[0])
-            for chunk in chunks[1:]:
-                await ack.reply(chunk)
-        except Exception:
-            logger.exception("Failed to deliver the answer to chat %s", message.chat.id)
+        # Addressed non-text kinds: per-type stub, falling back to "other"
+        # when a kind has no dedicated handler (safety net for new types).
+        stub = STUB_TEXTS.get(question.kind, OTHER_STUB_TEXT)
+        logger.info("Stub reply for content type '%s' from chat %s", question.kind, message.chat.id)
+        await message.reply(stub)
 
     return router

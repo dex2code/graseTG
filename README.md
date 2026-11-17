@@ -8,9 +8,11 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
 - The trigger is an `@mention` of the bot with the question in the same message:
   `@grase_bot how do I cook borscht?`
 - Private messages and unknown groups are silently ignored.
-- Only **text questions** are answered for now. A photo with an `@mention`
-  in the caption is recognized but answered with a "not supported yet" hint;
-  other content types (voice, stickers, …) are silently ignored. The content
+- The bot reacts **only to messages addressed to it**: an `@mention` in the
+  message text, or in a photo caption. Unaddressed messages are silently ignored.
+- Only **text questions** are answered by the LLM. An addressed photo is answered
+  with a "can't analyze images yet" stub. Handlers for audio and stickers are
+  declared but dormant — these types cannot carry an @mention yet. The content
   pipeline is extensible — new types are added as extractors in `src/grase_tg/content.py`.
 - Each question is sent without chat history to an OpenAI-compatible API;
   long answers are split into chunks.
