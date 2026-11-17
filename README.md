@@ -27,7 +27,8 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
    - `allowed_chat_ids` — IDs of the allowed groups;
    - `llm.model` — the model name on your backend;
    - `llm.enable_thinking` — model "thinking" toggle (`chat_template_kwargs.enable_thinking`
-     for vLLM/SGLang-style backends, Qwen3, etc.);
+     for vLLM/SGLang-style backends, Qwen3, etc.): `true`/`false` send the field,
+     `null` omits it entirely (safest for plain OpenAI APIs);
    - `system_prompt` — answer style and rules (replace the placeholder with your own).
 
 ## How to find a group ID

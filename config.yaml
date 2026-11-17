@@ -12,7 +12,10 @@ llm:
   temperature: 0.7
   max_tokens: 1024
   timeout_seconds: 60
-  enable_thinking: false   # model "thinking" (Qwen3-style backends)
+  # Model "thinking" toggle, sent as chat_template_kwargs (vLLM/SGLang, Qwen3-style):
+  #   true / false — send the field with this value
+  #   null         — do not send the field at all (safest for plain OpenAI APIs)
+  enable_thinking: null
 
 # System prompt: answer style and rules. Replace with your own.
 system_prompt: |

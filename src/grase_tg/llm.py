@@ -17,6 +17,11 @@ def make_client(config: Config) -> AsyncOpenAI:
 
 async def ask_llm(client: AsyncOpenAI, config: Config, question: str) -> str:
     """Ask a single question without chat history and return the answer text."""
+    # Model "thinking" toggle (vLLM/SGLang, Qwen3-style). Sent only when
+    # enable_thinking is true/false; None means the field is omitted entirely.
+    extra_body = None
+    if config.app.llm.enable_thinking is not None:
+        extra_body = {"chat_template_kwargs": {"enable_thinking": config.app.llm.enable_thinking}}
     response = await client.chat.completions.create(
         model=config.app.llm.model,
         temperature=config.app.llm.temperature,
@@ -27,9 +32,7 @@ async def ask_llm(client: AsyncOpenAI, config: Config, question: str) -> str:
             {"role": "system", "content": config.app.system_prompt},
             {"role": "user", "content": question},
         ],
-        # Provider-specific extension: model "thinking" toggle
-        # (vLLM/SGLang, Qwen3-style models). Ignored by plain OpenAI backends.
-        extra_body={"chat_template_kwargs": {"enable_thinking": config.app.llm.enable_thinking}},
+        extra_body=extra_body,
     )
     answer = (response.choices[0].message.content or "").strip()
     return answer or EMPTY_ANSWER

@@ -35,8 +35,10 @@ class LlmSettings(BaseModel):
     max_tokens: int = 1024
     timeout_seconds: float = 60.0
     # Model "thinking" toggle, sent as chat_template_kwargs={"enable_thinking": ...}
-    # (supported by vLLM/SGLang and Qwen3-style models).
-    enable_thinking: bool = False
+    # (vLLM/SGLang, Qwen3-style models).
+    # true / false — send the field; None — do not send it at all
+    # (safe for vanilla OpenAI-compatible APIs like api.openai.com).
+    enable_thinking: bool | None = None
 
 
 class AppConfig(BaseModel):
