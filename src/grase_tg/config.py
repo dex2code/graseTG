@@ -1,24 +1,19 @@
 """Configuration loading: secrets from .env + settings from config.yaml -> one Config object."""
 
+import os
 from pathlib import Path
 from typing import Any
 
 import yaml
+from dotenv import dotenv_values
 from pydantic import BaseModel, Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root: src/grase_tg/config.py -> parents[2]
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 
-class Secrets(BaseSettings):
-    """Secrets, read from .env in the project root (not committed to git)."""
-
-    model_config = SettingsConfigDict(
-        env_file=BASE_DIR / ".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+class Secrets(BaseModel):
+    """Secrets, collected from the OS environment and the project-root .env file."""
 
     bot_token: SecretStr
     llm_api_key: SecretStr
@@ -56,6 +51,21 @@ class Config(BaseModel):
     app: AppConfig
 
 
+def _read_secrets(base_dir: Path) -> Secrets:
+    """Collect secret values: OS environment wins over the .env file.
+
+    An empty OS environment variable counts as unset (falls back to .env).
+    """
+    file_values = dotenv_values(base_dir / ".env")
+    values: dict[str, str] = {}
+    for field in Secrets.model_fields:
+        # Field names map to UPPER_CASE environment variable names.
+        value = os.environ.get(field.upper()) or file_values.get(field.upper())
+        if value is not None:
+            values[field] = value
+    return Secrets.model_validate(values)
+
+
 def load_config(base_dir: Path | None = None) -> Config:
     """Load settings from the given directory (defaults to the project root)."""
     base = base_dir or BASE_DIR
@@ -63,6 +73,4 @@ def load_config(base_dir: Path | None = None) -> Config:
     yaml_path = base / "config.yaml"
     if yaml_path.exists():
         raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
-    # pydantic-settings fills Secrets from .env at runtime, but pyright cannot see
-    # that and reports the missing constructor arguments — a known false positive.
-    return Config(secrets=Secrets(_env_file=base / ".env"), app=AppConfig.model_validate(raw))  # pyright: ignore[reportCallIssue]
+    return Config(secrets=_read_secrets(base), app=AppConfig.model_validate(raw))
