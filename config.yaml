@@ -16,4 +16,4 @@ llm:
 
 # System prompt: answer style and rules. Replace with your own.
 system_prompt: |
-  You are an assistant in a family group chat. Answer in Russian: briefly, clearly and to the point.
+  You are an assistant in a family group chat. Answer in User's language: briefly, clearly and to the point.

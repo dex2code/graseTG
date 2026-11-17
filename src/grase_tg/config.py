@@ -43,7 +43,7 @@ class AppConfig(BaseModel):
     """Non-secret settings from config.yaml."""
 
     allowed_chat_ids: list[int] = Field(default_factory=list)
-    system_prompt: str = "You are an assistant in a family group chat. Answer in Russian: briefly, clearly and to the point."
+    system_prompt: str = "You are an assistant in a family group chat. Answer in User's language: briefly, clearly and to the point."
     llm: LlmSettings = LlmSettings()
 
 
