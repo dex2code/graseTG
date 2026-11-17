@@ -53,3 +53,11 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
 uv sync          # create .venv and install dependencies
 uv run grase-tg  # start the bot
 ```
+
+## Testing
+
+```bash
+uv run pytest  # unit tests: content extraction, handlers, LLM payload, config
+```
+
+All tests are offline: the LLM is a local stub server, Telegram objects are fakes.

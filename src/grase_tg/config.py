@@ -56,11 +56,13 @@ class Config(BaseModel):
     app: AppConfig
 
 
-def load_config() -> Config:
+def load_config(base_dir: Path | None = None) -> Config:
+    """Load settings from the given directory (defaults to the project root)."""
+    base = base_dir or BASE_DIR
     raw: dict[str, Any] = {}
-    yaml_path = BASE_DIR / "config.yaml"
+    yaml_path = base / "config.yaml"
     if yaml_path.exists():
         raw = yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
     # pydantic-settings fills Secrets from .env at runtime, but pyright cannot see
     # that and reports the missing constructor arguments — a known false positive.
-    return Config(secrets=Secrets(), app=AppConfig.model_validate(raw))  # pyright: ignore[reportCallIssue]
+    return Config(secrets=Secrets(_env_file=base / ".env"), app=AppConfig.model_validate(raw))  # pyright: ignore[reportCallIssue]
