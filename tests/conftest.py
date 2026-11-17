@@ -3,7 +3,6 @@
 import json
 import threading
 from typing import Any, Callable, cast
-from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from types import SimpleNamespace
 
@@ -12,11 +11,14 @@ from aiogram.enums import MessageEntityType
 from pydantic import SecretStr
 
 from grase_tg.config import AppConfig, Config, Secrets
+from grase_tg.content import BotIdentity
 from grase_tg.handlers import build_router
 from grase_tg.llm import make_client
 
 BOT_USERNAME = "family_bot"
 BOT_MENTION = f"@{BOT_USERNAME}"
+BOT_USER_ID = 4242  # the bot's Telegram user id in tests
+BOT = BotIdentity(username=BOT_USERNAME, user_id=BOT_USER_ID)
 
 
 def mention_entity(offset: int = 0, length: int = 4) -> SimpleNamespace:
@@ -38,17 +40,38 @@ def mention_entities_for(text: str, username: str = BOT_USERNAME) -> list:
     return entities
 
 
+def bot_message(message_id: int = 1, text: str = "") -> SimpleNamespace:
+    """A duck-typed message authored by the bot, for use as reply_to_message."""
+    return SimpleNamespace(message_id=message_id, from_user=SimpleNamespace(id=BOT_USER_ID), text=text)
+
+
+def human_message(message_id: int = 1, text: str = "") -> SimpleNamespace:
+    """A duck-typed message authored by some other user."""
+    return SimpleNamespace(message_id=message_id, from_user=SimpleNamespace(id=999), text=text)
+
+
 class FakeAck:
-    """Records edit_text / reply calls, like the aiogram Message returned by reply()."""
+    """Records edit_text / reply calls, like the aiogram Message returned by reply().
+
+    The fail_edit / fail_reply switches (set per test, usually via monkeypatch
+    on the class) make the corresponding call raise, to exercise failure paths.
+    """
+
+    fail_edit = False
+    fail_reply = False
 
     def __init__(self) -> None:
         self.edits: list[str] = []
         self.replies: list[str] = []
 
     async def edit_text(self, text: str) -> None:
+        if self.fail_edit:
+            raise RuntimeError("edit rejected")
         self.edits.append(text)
 
     async def reply(self, text: str) -> None:
+        if self.fail_reply:
+            raise RuntimeError("reply rejected")
         self.replies.append(text)
 
 
@@ -61,19 +84,35 @@ class FakeMessage:
         entities: list | None = None,
         chat_id: int = -100,
         photo: bool = False,
+        document: bool = False,
+        video: bool = False,
+        animation: bool = False,
         caption: str | None = None,
         caption_entities: list | None = None,
         voice: bool = False,
+        audio: bool = False,
+        video_note: bool = False,
         sticker: bool = False,
+        reply_to_message: Any = None,
+        is_topic_message: bool = False,
+        message_thread_id: int | None = None,
     ) -> None:
         self.chat = SimpleNamespace(id=chat_id, title="Test Group", full_name="Test User")
         self.text = text
         self.entities = entities
         self.photo = object() if photo else None
+        self.document = object() if document else None
+        self.video = object() if video else None
+        self.animation = object() if animation else None
         self.caption = caption
         self.caption_entities = caption_entities
         self.voice = object() if voice else None
+        self.audio = object() if audio else None
+        self.video_note = object() if video_note else None
         self.sticker = object() if sticker else None
+        self.reply_to_message = reply_to_message
+        self.is_topic_message = is_topic_message
+        self.message_thread_id = message_thread_id
         self.sent: list[str] = []
         self.acks: list[FakeAck] = []
 
@@ -106,10 +145,24 @@ def config() -> Config:
 
 
 @pytest.fixture
+def env_isolated(monkeypatch):
+    """Hide real environment variables so tests are hermetic."""
+    for name in (
+        "BOT_TOKEN",
+        "LLM_API_KEY",
+        "LLM_BASE_URL",
+        "TELEGRAM_PROXY_URL",
+        "GRASE_TG_CONFIG_DIR",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    return monkeypatch
+
+
+@pytest.fixture
 def handler(config):
     """The inner message handler extracted from the built router."""
     # A real client is fine here: every test that reaches ask_llm monkeypatches it.
-    router = build_router(config, make_client(config), bot_username=BOT_USERNAME)
+    router = build_router(config, make_client(config), BOT)
     return router.observers["message"].handlers[0].callback
 
 

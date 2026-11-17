@@ -5,7 +5,7 @@ from pydantic import SecretStr
 
 from grase_tg.config import AppConfig, Config, Secrets, LlmSettings
 from grase_tg.content import Question
-from grase_tg.llm import EMPTY_ANSWER, _build_messages, ask_llm, make_client
+from grase_tg.llm import _build_messages, ask_llm, make_client
 
 
 def _config(llm_settings: LlmSettings | None = None, base_url: str = "http://llm.test/v1") -> Config:
@@ -26,9 +26,22 @@ def test_build_messages_text_shape():
     ]
 
 
+def test_build_messages_includes_reply_context_as_assistant():
+    cfg = _config()
+    messages = _build_messages(
+        cfg,
+        Question(kind="text", text="and what about chicken?", context="Borscht takes 2 hours."),
+    )
+    assert messages == [
+        {"role": "system", "content": cfg.app.system_prompt},
+        {"role": "assistant", "content": "Borscht takes 2 hours."},
+        {"role": "user", "content": "and what about chicken?"},
+    ]
+
+
 def test_build_messages_rejects_non_text():
     with pytest.raises(NotImplementedError):
-        _build_messages(_config(), Question(kind="photo", text="x"))
+        _build_messages(_config(), Question(kind="media", text="x"))
 
 
 # --- ask_llm against the stub server ---
@@ -41,6 +54,16 @@ async def test_ask_llm_sends_full_payload(config_with_stub):
     assert body["stream"] is False
     assert body["model"] == cfg.app.llm.model
     assert body["messages"][-1] == {"role": "user", "content": "how to cook?"}
+
+
+async def test_ask_llm_sends_reply_context(config_with_stub):
+    cfg, stub = config_with_stub
+    await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q2", context="prev answer"))
+    assert stub.requests[-1]["messages"] == [
+        {"role": "system", "content": cfg.app.system_prompt},
+        {"role": "assistant", "content": "prev answer"},
+        {"role": "user", "content": "q2"},
+    ]
 
 
 async def test_thinking_none_omits_field(config_with_stub):
@@ -62,7 +85,7 @@ async def test_empty_model_answer_replaced_with_notice(config_with_stub):
     cfg, stub = config_with_stub
     stub.reply_content = ""
     answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"))
-    assert answer == EMPTY_ANSWER
+    assert answer == cfg.app.messages.empty_answer
 
 
 async def test_answer_is_stripped(config_with_stub):

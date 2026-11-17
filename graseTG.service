@@ -2,6 +2,8 @@
 #
 # Deploy on a Linux server (adjust User and paths to your setup):
 #   1. Put the project into /opt/graseTG and run `uv sync --frozen` there
+#      (creates the .venv whose entry point ExecStart runs; uv itself is
+#      not needed on the server at runtime)
 #   2. Fill in /opt/graseTG/.env; copy config.example.yaml to /opt/graseTG/config.yaml
 #   3. Create the service user: useradd --system --no-create-home grase
 #   4. chown -R grase:grase /opt/graseTG
@@ -23,15 +25,17 @@ User=grase
 Group=grase
 WorkingDirectory=/opt/graseTG
 
-# Secrets and settings live in the project directory: the bot reads .env and
-# config.yaml itself. The `-` prefix means the unit does not fail when the
-# file is absent (EnvironmentFile here is just for systemd-visible overrides).
-EnvironmentFile=-/opt/graseTG/.env
+# The bot reads .env and config.yaml from its working directory. They are
+# deliberately NOT loaded via EnvironmentFile: systemd's parser does not
+# understand dotenv quoting, so a quoted value like BOT_TOKEN="..." would
+# arrive with the quotes — and since the OS environment wins over the file,
+# it would shadow the correctly parsed .env value. For an emergency override
+# use `systemctl edit` with Environment= lines instead.
 Environment=PYTHONUNBUFFERED=1
 
-# --frozen: never resolve or upgrade dependencies on the server, use uv.lock as is.
-# Adjust the uv path if it is not in /usr/local/bin (e.g. ~/.local/bin/uv).
-ExecStart=/usr/local/bin/uv run --frozen grase-tg
+# Run the venv entry point directly: no uv at runtime, so no uv cache under
+# ~/.cache/uv (unreachable for a home-less system user behind ProtectHome).
+ExecStart=/opt/graseTG/.venv/bin/grase-tg
 
 # Restart on crashes, but stay down after 5 crashes per minute
 # (e.g. a broken .env) so the problem can be inspected instead of hot-looping.

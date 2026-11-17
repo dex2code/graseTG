@@ -1,11 +1,12 @@
 """Tests for configuration loading: .env secrets, config.yaml, defaults."""
 
 import textwrap
+from pathlib import Path
 
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from grase_tg.config import load_config
+from grase_tg.config import CONFIG_DIR_ENV, default_config_dir, load_config
 
 
 ENV = {
@@ -13,14 +14,6 @@ ENV = {
     "LLM_API_KEY": "sk-test-key",
     "LLM_BASE_URL": "http://llm.test/v1",
 }
-
-
-@pytest.fixture
-def env_isolated(monkeypatch):
-    """Hide real environment variables so tests are hermetic."""
-    for name in ("BOT_TOKEN", "LLM_API_KEY", "LLM_BASE_URL", "TELEGRAM_PROXY_URL"):
-        monkeypatch.delenv(name, raising=False)
-    return monkeypatch
 
 
 def _write(tmp_path, yaml_text: str | None = None, env_text: str | None = None):
@@ -98,6 +91,154 @@ def test_proxy_url_read_from_env(tmp_path, env_isolated):
         LLM_BASE_URL={ENV['LLM_BASE_URL']}
     """)
     assert load_config(tmp_path).secrets.telegram_proxy_url == "http://proxy.local:8080"
+
+
+def test_dotenv_values_are_taken_literally(tmp_path, env_isolated):
+    # A secret containing $VAR / ${VAR} must NOT be interpolated (expanded or
+    # emptied) — with the default interpolation on, the value would be silently
+    # corrupted and fail later as a cryptic auth error.
+    env_isolated.setenv("WHO", "intruder")
+    env_text = (
+        f"BOT_TOKEN={ENV['BOT_TOKEN']}\n"
+        "LLM_API_KEY=sk-${WHO}-key-$1\n"
+        f"LLM_BASE_URL={ENV['LLM_BASE_URL']}\n"
+    )
+    _write(tmp_path, env_text=env_text)
+    cfg = load_config(tmp_path)
+    assert cfg.secrets.llm_api_key.get_secret_value() == "sk-${WHO}-key-$1"
+
+
+# --- config directory resolution ---
+
+
+def test_config_dir_defaults_to_cwd(env_isolated, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert default_config_dir() == tmp_path
+
+
+def test_config_dir_env_override_wins(env_isolated):
+    env_isolated.setenv(CONFIG_DIR_ENV, "/somewhere/else")
+    assert default_config_dir() == Path("/somewhere/else")
+
+
+# --- user-facing messages config ---
+
+
+def test_message_defaults_are_english(tmp_path, env_isolated):
+    _write(tmp_path, env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+    """)
+    messages = load_config(tmp_path).app.messages
+    assert messages.ack == "Got it, thinking…"
+    assert "{username}" in messages.format_hint  # the template placeholder is required at runtime
+    assert messages.empty_answer
+
+
+def test_custom_messages_loaded(tmp_path, env_isolated):
+    _write(
+        tmp_path,
+        yaml_text="""
+        messages:
+          ack: Понял, думаю…
+          error: Не получилось — попробуй позже.
+        """,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    messages = load_config(tmp_path).app.messages
+    assert messages.ack == "Понял, думаю…"
+    assert messages.error == "Не получилось — попробуй позже."
+    assert messages.media_stub  # unset fields keep their defaults
+
+
+def test_unknown_message_key_rejected(tmp_path, env_isolated):
+    _write(
+        tmp_path,
+        yaml_text="""
+        messages:
+          acck: typo
+        """,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    assert "acck" in str(exc.value)
+
+
+def test_empty_message_text_rejected(tmp_path, env_isolated):
+    # An empty user-facing text is a config error, not an invisible bot reply.
+    _write(
+        tmp_path,
+        yaml_text="""
+        messages:
+          ack: ""
+        """,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    assert "ack" in str(exc.value)
+
+
+def test_format_hint_unknown_placeholder_rejected(tmp_path, env_isolated):
+    # {usrname} is a typo: .format(username=...) would raise KeyError inside
+    # the handler — it must fail at startup instead.
+    _write(
+        tmp_path,
+        yaml_text="""
+        messages:
+          format_hint: "Hi {usrname}, ask me anything"
+        """,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    assert "placeholder" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("llm_yaml", "bad_field"),
+    [
+        ("temperature: -0.1", "temperature"),
+        ("max_tokens: 0", "max_tokens"),
+        ("timeout_seconds: 0", "timeout_seconds"),
+        ("model: ''", "model"),
+    ],
+)
+def test_out_of_range_llm_settings_rejected_at_startup(tmp_path, env_isolated, llm_yaml, bad_field):
+    # Nonsense values must fail at startup, not as a runtime API error.
+    _write(
+        tmp_path,
+        yaml_text=f"""
+        llm:
+          {llm_yaml}
+        """,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    assert bad_field in str(exc.value)
 
 
 def test_missing_secrets_fail_with_field_names(tmp_path, env_isolated):

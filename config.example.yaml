@@ -23,3 +23,20 @@ llm:
 # System prompt: answer style and rules. Replace with your own.
 system_prompt: |
   You are an assistant in a family group chat. Answer in User's language: briefly, clearly and to the point.
+
+# User-facing texts of the bot. Defaults are English — translate them to your
+# language here. Every value must be non-empty; unknown keys are rejected.
+# format_hint is a template: {username} is replaced with the bot's @username
+# (unknown placeholders fail at startup).
+messages:
+  ack: "Got it, thinking…"
+  error: "Failed to get a response from the model. Please try again later."
+  format_hint: |
+    To ask a question, write it in the same message after the mention:
+    "@{username} how do I cook borscht?"
+    Or simply reply to any of my messages.
+  media_stub: "I can see the attachment, but I can't analyze it yet — ask about it with text."
+  audio_stub: "Voice and audio messages are not supported yet — please type your question."
+  sticker_stub: "Nice sticker! I can't reply to stickers meaningfully yet."
+  other_stub: "This message type is not supported yet — ask me with a text @mention."
+  empty_answer: "The model returned an empty response."

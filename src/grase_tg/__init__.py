@@ -5,11 +5,15 @@ import logging
 
 from urllib.parse import urlsplit
 
+import yaml
 from aiogram import Bot, Dispatcher
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.exceptions import TelegramUnauthorizedError
+from aiogram.utils.token import TokenValidationError
+from pydantic import ValidationError
 
-from .config import load_config
+from .config import default_config_dir, load_config
+from .content import BotIdentity
 from .handlers import build_router
 from .llm import make_client
 
@@ -52,7 +56,17 @@ async def run_bot() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    config = load_config()
+    config_dir = default_config_dir()
+    # Logged before loading: if .env/config.yaml are missing, the log shows
+    # where the bot looked for them.
+    logger.info("Config directory: %s", config_dir)
+    try:
+        config = load_config(config_dir)
+    except (ValidationError, yaml.YAMLError) as error:
+        # A config typo must be a clean one-line startup failure, not a raw
+        # pydantic/yaml traceback in the journal.
+        logger.error("Invalid configuration in %s:\n%s", config_dir, error)
+        raise SystemExit(1) from None
 
     # Optional HTTP/SOCKS proxy for Telegram traffic only (LLM requests stay direct).
     session = None
@@ -66,7 +80,15 @@ async def run_bot() -> None:
             raise SystemExit(1) from None
         logger.info("Connecting to Telegram via proxy: %s", _masked_proxy(proxy_url))
 
-    bot = Bot(token=config.secrets.bot_token.get_secret_value(), session=session)
+    # aiogram validates the token format at construction; a malformed token
+    # must be a clean startup failure (and must not leak the proxy session).
+    try:
+        bot = Bot(token=config.secrets.bot_token.get_secret_value(), session=session)
+    except TokenValidationError:
+        if session is not None:
+            await session.close()
+        logger.error("Malformed BOT_TOKEN — expected '123456789:AA…' from @BotFather. Check .env")
+        raise SystemExit(1) from None
 
     # Verify the token before starting the polling loop.
     # On any fatal startup problem: close the session, log clearly, exit non-zero.
@@ -87,7 +109,7 @@ async def run_bot() -> None:
         raise SystemExit(1) from None
 
     dp = Dispatcher()
-    dp.include_router(build_router(config, make_client(config), me.username))
+    dp.include_router(build_router(config, make_client(config), BotIdentity(username=me.username, user_id=me.id)))
     logger.info(
         "Bot @%s started. Allowed groups: %s",
         me.username,
