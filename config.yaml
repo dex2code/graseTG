@@ -1,19 +1,19 @@
-# Настройки поведения бота. Секреты хранятся отдельно — в .env (см. .env.example).
+# Bot behavior settings. Secrets are kept separately in .env (see .env.example).
 
-# ID групповых чатов, в которых бот отвечает. Всё остальное игнорируется.
-# Как узнать id — см. README, раздел «Как узнать ID группы».
+# IDs of group chats where the bot answers. Everything else is ignored.
+# To find a chat id, see the "How to find a group ID" section in README.
 allowed_chat_ids: []
 #  - -1001234567890
 #  - -1009876543210
 
-# Параметры обращения к LLM (OpenAI-совместимый backend; адрес и ключ — в .env)
+# LLM call parameters (OpenAI-compatible backend; URL and key live in .env)
 llm:
-  model: gpt-5-mini        # поменяй на имя модели твоего backend'а
+  model: gpt-5-mini        # change to your backend's model name
   temperature: 0.7
   max_tokens: 1024
   timeout_seconds: 60
-  enable_thinking: false   # «размышление» модели (Qwen3-подобные backend'ы)
+  enable_thinking: false   # model "thinking" (Qwen3-style backends)
 
-# Системный промпт: характер и правила ответов. Замени на свой.
+# System prompt: answer style and rules. Replace with your own.
 system_prompt: |
-  Ты — ассистент в семейном групповом чате. Отвечай по-русски: кратко, ясно и по делу.
+  You are an assistant in a family group chat. Answer in Russian: briefly, clearly and to the point.

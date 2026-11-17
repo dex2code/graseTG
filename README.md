@@ -1,43 +1,48 @@
 # graseTG
-Семейный Telegram-бот: в разрешённых групповых чатах отвечает на вопросы через LLM.
 
-## Как работает
+A family Telegram bot: answers questions in whitelisted group chats via an LLM.
 
-- Бот отвечает **только в группах из белого списка** (`config.yaml` → `allowed_chat_ids`).
-- Триггер — `@упоминание` бота с текстом вопроса в том же сообщении: «@grase_bot как варить борщ?».
-- Личные сообщения и чужие группы молча игнорируются.
-- Вопрос без истории переписки отправляется в OpenAI-совместимый API, ответ приходит reply'ом.
-- Памяти нет: каждый вопрос обрабатывается самостоятельно.
+## How it works
 
-## Настройка
+- The bot answers **only in whitelisted groups** (`config.yaml` → `allowed_chat_ids`).
+- The trigger is an `@mention` of the bot with the question in the same message:
+  `@grase_bot how do I cook borscht?`
+- Private messages and unknown groups are silently ignored.
+- Each question is sent without chat history to an OpenAI-compatible API;
+  the answer arrives as a reply.
+- No memory: every question is processed independently.
+- The bot acknowledges immediately ("Got it, thinking…"), then edits that message
+  with the model's answer. If the model fails, the same message shows the error.
 
-1. **Секреты** — скопируй `.env.example` в `.env` и заполни:
-   - `BOT_TOKEN` — токен от [@BotFather](https://t.me/BotFather);
-   - `LLM_BASE_URL` — адрес OpenAI-совместимого API (обычно заканчивается на `/v1`);
-   - `LLM_API_KEY` — ключ доступа;
-   - `TELEGRAM_PROXY_URL` — (необязательно) HTTP-прокси для Telegram:
-     `http://proxy.local:8080` или с авторизацией `http://логин:пароль@proxy.local:8080`.
-     Прокси действует только на трафик к Telegram; запросы к LLM идут напрямую.
-2. **Настройки** — `config.yaml`:
-   - `allowed_chat_ids` — ID разрешённых групп;
-   - `llm.model` — имя модели на твоём backend'е;
-   - `llm.enable_thinking` — «размышление» модели (`chat_template_kwargs.enable_thinking`
-     для vLLM/SGLang-подобных backend'ов, Qwen3 и т.п.);
-   - `system_prompt` — характер ответов (замени заглушку на свой промпт).
+## Setup
 
-## Как узнать ID группы
+1. **Secrets** — copy `.env.example` to `.env` and fill it in:
+   - `BOT_TOKEN` — the token from [@BotFather](https://t.me/BotFather);
+   - `LLM_BASE_URL` — an OpenAI-compatible API base URL (usually ends with `/v1`);
+   - `LLM_API_KEY` — the API access key;
+   - `TELEGRAM_PROXY_URL` — (optional) HTTP proxy for Telegram:
+     `http://proxy.local:8080` or with auth `http://user:password@proxy.local:8080`.
+     The proxy applies to Telegram traffic only; LLM requests go direct.
+2. **Settings** — `config.yaml`:
+   - `allowed_chat_ids` — IDs of the allowed groups;
+   - `llm.model` — the model name on your backend;
+   - `llm.enable_thinking` — model "thinking" toggle (`chat_template_kwargs.enable_thinking`
+     for vLLM/SGLang-style backends, Qwen3, etc.);
+   - `system_prompt` — answer style and rules (replace the placeholder with your own).
 
-1. Добавь бота в группу и напиши в ней любое `@упоминание` бота.
-2. В логах появится строка вида:
-   `Чат «Наша семья» (id=-1001234567890) не в белом списке — игнорирую.`
-3. Впиши этот id в `allowed_chat_ids` в `config.yaml` и перезапусти бота.
+## How to find a group ID
 
-> Privacy mode у бота должен быть включён (это значение по умолчанию у @BotFather) —
-> так Telegram присылает боту только `@упоминания`, команды и реплаи.
+1. Add the bot to a group and post any `@mention` of it there.
+2. A line like this appears in the logs:
+   `Chat 'Our Family' (id=-1001234567890) is not whitelisted — ignoring.`
+3. Put that id into `allowed_chat_ids` in `config.yaml` and restart the bot.
 
-## Запуск
+> Privacy mode must be enabled for the bot (the default from @BotFather) —
+> that way Telegram only delivers `@mentions`, commands and replies to the bot.
+
+## Running
 
 ```bash
-uv sync          # создать .venv и поставить зависимости
-uv run grase-tg  # запустить бота
+uv sync          # create .venv and install dependencies
+uv run grase-tg  # start the bot
 ```

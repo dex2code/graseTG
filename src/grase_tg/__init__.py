@@ -1,4 +1,4 @@
-"""Точка входа семейного Telegram-бота."""
+"""Family Telegram bot entry point: startup, wiring, polling."""
 
 import asyncio
 import logging
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 def _masked_proxy(proxy_url: str) -> str:
-    """Прокси-адрес для логов: пароль и логин не светим."""
+    """Return a proxy URL safe for logs: credentials stripped."""
     parts = urlsplit(proxy_url)
     if parts.username is None:
         return proxy_url
@@ -30,31 +30,38 @@ async def run_bot() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
     config = load_config()
+
+    # Optional HTTP proxy for Telegram traffic only (LLM requests stay direct).
     session = None
     if config.secrets.telegram_proxy_url:
         session = AiohttpSession(proxy=config.secrets.telegram_proxy_url)
         logger.info(
-            "Подключение к Telegram через HTTP-прокси: %s",
+            "Connecting to Telegram via HTTP proxy: %s",
             _masked_proxy(config.secrets.telegram_proxy_url),
         )
+
     bot = Bot(token=config.secrets.bot_token.get_secret_value(), session=session)
+
+    # Verify the token before starting the polling loop.
     try:
         me = await bot.get_me()
     except TelegramUnauthorizedError:
-        logger.error("Telegram отклонил токен (Unauthorized) — проверь BOT_TOKEN в .env")
+        logger.error("Telegram rejected the token (Unauthorized) — check BOT_TOKEN in .env")
         raise SystemExit(1) from None
     if me.username is None:
-        logger.error("У бота нет username — @упоминания работать не смогут.")
+        logger.error("The bot has no username — @mentions will not work.")
         return
 
     dp = Dispatcher()
     dp.include_router(build_router(config, make_client(config), me.username))
     logger.info(
-        "Бот @%s запущен. Разрешённые группы: %s",
+        "Bot @%s started. Allowed groups: %s",
         me.username,
-        config.app.allowed_chat_ids or "не настроены",
+        config.app.allowed_chat_ids or "none configured",
     )
+    # "message" is the only update type this bot needs.
     await dp.start_polling(bot, allowed_updates=["message"])
 
 

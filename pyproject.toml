@@ -1,7 +1,7 @@
 [project]
 name = "grase-tg"
 version = "0.1.0"
-description = "Add your description here"
+description = "Family Telegram bot: answers @mentions in whitelisted group chats via an OpenAI-compatible LLM API"
 readme = "README.md"
 authors = [
     { name = "dex2code", email = "dex2code@local" }
