@@ -221,3 +221,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Project-local settings (templates: config.example.yaml, .env.example)
+config.yaml

@@ -19,6 +19,8 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
 - Each question is sent without chat history to an OpenAI-compatible API;
   long answers are split into chunks.
 - No memory: every question is processed independently.
+- Updates that arrived while the bot was offline are discarded on startup —
+  no delayed replies to stale mentions after a restart.
 - The bot acknowledges immediately ("Got it, thinking…"), then edits that message
   with the model's answer. If the model fails, the same message shows the error.
 
@@ -28,16 +30,20 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
    - `BOT_TOKEN` — the token from [@BotFather](https://t.me/BotFather);
    - `LLM_BASE_URL` — an OpenAI-compatible API base URL (usually ends with `/v1`);
    - `LLM_API_KEY` — the API access key;
-   - `TELEGRAM_PROXY_URL` — (optional) HTTP proxy for Telegram:
-     `http://proxy.local:8080` or with auth `http://user:password@proxy.local:8080`.
+   - `TELEGRAM_PROXY_URL` — (optional) proxy for Telegram traffic:
+     `http://proxy.local:8080` or `socks5://proxy.local:1080`, with auth
+     `scheme://user:password@proxy.local:port`. Supported schemes: `http`,
+     `socks4`, `socks5`; an invalid URL is rejected at startup.
      The proxy applies to Telegram traffic only; LLM requests go direct.
-2. **Settings** — `config.yaml`:
+2. **Settings** — copy `config.example.yaml` to `config.yaml` (gitignored) and adjust:
    - `allowed_chat_ids` — IDs of the allowed groups;
    - `llm.model` — the model name on your backend;
    - `llm.enable_thinking` — model "thinking" toggle (`chat_template_kwargs.enable_thinking`
      for vLLM/SGLang-style backends, Qwen3, etc.): `true`/`false` send the field,
      `null` omits it entirely (safest for plain OpenAI APIs);
    - `system_prompt` — answer style and rules (replace the placeholder with your own).
+   - Unknown keys are rejected at startup — a typo fails fast instead of
+     silently disabling a setting.
 
 ## How to find a group ID
 

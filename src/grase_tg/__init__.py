@@ -15,6 +15,11 @@ from .llm import make_client
 
 logger = logging.getLogger(__name__)
 
+# Exactly the proxy schemes aiogram's AiohttpSession can dial (via python-socks).
+# https://, socks4a:// and socks5h:// are deliberately absent: the connector
+# rejects them, so they fail fast at startup instead of at the first request.
+SUPPORTED_PROXY_SCHEMES = frozenset({"http", "socks4", "socks5"})
+
 
 def _masked_proxy(proxy_url: str) -> str:
     """Return a proxy URL safe for logs: credentials stripped."""
@@ -25,6 +30,22 @@ def _masked_proxy(proxy_url: str) -> str:
     return f"{parts.scheme}://{netloc}"
 
 
+def _build_session(proxy_url: str) -> AiohttpSession:
+    """Create a proxied Telegram session.
+
+    HTTP and SOCKS proxies share one path: aiogram routes proxied sessions
+    through the aiohttp-socks connector (with remote DNS). Raises ValueError
+    for an unsupported scheme or a malformed URL.
+    """
+    scheme = urlsplit(proxy_url).scheme.lower()
+    if scheme not in SUPPORTED_PROXY_SCHEMES:
+        raise ValueError(
+            f"unsupported proxy scheme {scheme or '(missing)'} in {proxy_url!r}; "
+            f"expected one of: {', '.join(sorted(SUPPORTED_PROXY_SCHEMES))}"
+        )
+    return AiohttpSession(proxy=proxy_url)
+
+
 async def run_bot() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -33,14 +54,17 @@ async def run_bot() -> None:
 
     config = load_config()
 
-    # Optional HTTP proxy for Telegram traffic only (LLM requests stay direct).
+    # Optional HTTP/SOCKS proxy for Telegram traffic only (LLM requests stay direct).
     session = None
     if config.secrets.telegram_proxy_url:
-        session = AiohttpSession(proxy=config.secrets.telegram_proxy_url)
-        logger.info(
-            "Connecting to Telegram via HTTP proxy: %s",
-            _masked_proxy(config.secrets.telegram_proxy_url),
-        )
+        proxy_url = config.secrets.telegram_proxy_url
+        try:
+            session = _build_session(proxy_url)
+        except ValueError as error:
+            # Unsupported scheme, missing port, empty host — fail fast.
+            logger.error("Invalid TELEGRAM_PROXY_URL: %s", error)
+            raise SystemExit(1) from None
+        logger.info("Connecting to Telegram via proxy: %s", _masked_proxy(proxy_url))
 
     bot = Bot(token=config.secrets.bot_token.get_secret_value(), session=session)
 
@@ -69,8 +93,10 @@ async def run_bot() -> None:
         me.username,
         config.app.allowed_chat_ids or "none configured",
     )
-    # "message" is the only update type this bot needs.
-    await dp.start_polling(bot, allowed_updates=["message"])
+    # "message" is the only update type this bot needs. Updates queued by
+    # Telegram while the bot was down are dropped: no delayed replies to
+    # stale mentions after a restart.
+    await dp.start_polling(bot, allowed_updates=["message"], drop_pending_updates=True)
 
 
 def main() -> None:

@@ -7,7 +7,7 @@ import pytest
 from aiogram.types import Chat, Message
 
 import grase_tg.handlers as handlers_module
-from conftest import BOT_USERNAME, BOT_MENTION, mention_entities_for
+from conftest import BOT_MENTION, BOT_USERNAME, FakeAck, mention_entities_for
 
 from grase_tg.handlers import AllowedChatsFilter, split_text
 
@@ -128,3 +128,55 @@ async def test_stub_routing_by_kind(handler, make_message, monkeypatch, kind, ex
     m = make_message()
     await handler(m)
     assert m.sent == [expected]
+
+
+# --- delivery failures are contained (no exception may escape the handler) ---
+
+
+async def test_ack_send_failure_skips_llm_and_is_contained(handler, make_message, monkeypatch):
+    async def boom(client, cfg, question):
+        raise AssertionError("LLM must not be called when the ack cannot be sent")
+
+    monkeypatch.setattr(handlers_module, "ask_llm", boom)
+
+    async def broken_reply(_text: str):
+        raise RuntimeError("telegram is down")
+
+    text = f"{BOT_MENTION} hi"
+    m = make_message(text, mention_entities_for(text))
+    m.reply = broken_reply
+    await handler(m)  # must not raise
+    assert m.sent == []
+
+
+async def test_error_edit_failure_is_contained(handler, make_message, monkeypatch):
+    async def fail(client, cfg, question):
+        raise RuntimeError("LLM down")
+
+    monkeypatch.setattr(handlers_module, "ask_llm", fail)
+
+    async def broken_edit(self, _text: str) -> None:
+        raise RuntimeError("edit rejected")
+
+    monkeypatch.setattr(FakeAck, "edit_text", broken_edit)
+    text = f"{BOT_MENTION} hi"
+    m = make_message(text, mention_entities_for(text))
+    await handler(m)  # must not raise
+    assert m.sent == ["Got it, thinking…"]
+    assert m.acks[0].edits == []
+
+
+async def test_stub_reply_failure_is_contained(handler, make_message, monkeypatch):
+    async def boom(client, cfg, question):
+        raise AssertionError("LLM must not be called for stubs")
+
+    monkeypatch.setattr(handlers_module, "ask_llm", boom)
+
+    async def broken_reply(_text: str):
+        raise RuntimeError("telegram is down")
+
+    caption = f"{BOT_MENTION} what is this?"
+    m = make_message(photo=True, caption=caption, caption_entities=mention_entities_for(caption))
+    m.reply = broken_reply
+    await handler(m)  # must not raise
+    assert m.sent == []

@@ -72,6 +72,27 @@ def split_text(text: str, limit: int = MAX_MESSAGE_LENGTH) -> list[str]:
     return [text[i : i + limit] for i in range(0, len(text), limit)]
 
 
+async def send_reply(message: Message, text: str) -> Message | None:
+    """Reply to the user; on failure log clearly and return None instead of raising.
+
+    A failed send must not crash the handler: the exception would escape to
+    aiogram as a raw traceback, and the user would get nothing either way.
+    """
+    try:
+        return await message.reply(text)
+    except Exception:
+        logger.exception("Failed to send a message to chat %s", message.chat.id)
+        return None
+
+
+async def edit_ack(ack: Message, text: str) -> None:
+    """Edit the ack message; on failure log clearly instead of raising."""
+    try:
+        await ack.edit_text(text)
+    except Exception:
+        logger.exception("Failed to edit the ack message")
+
+
 def build_router(config: Config, llm_client: AsyncOpenAI, bot_username: str) -> Router:
     router = Router(name="family")
 
@@ -88,17 +109,19 @@ def build_router(config: Config, llm_client: AsyncOpenAI, bot_username: str) -> 
         if question.kind == "text":
             if not question.text:
                 # Addressed, but no question text — explain the format.
-                await message.reply(FORMAT_HINT.format(username=bot_username))
+                await send_reply(message, FORMAT_HINT.format(username=bot_username))
                 return
             logger.info("Question from chat %s: %s", message.chat.id, question.text)
 
             # Acknowledge immediately, then edit this message with the answer.
-            ack = await message.reply(ACK_TEXT)
+            ack = await send_reply(message, ACK_TEXT)
+            if ack is None:
+                return  # could not even ack — the log holds the reason
             try:
                 answer = await ask_llm(llm_client, config, question)
             except Exception:
                 logger.exception("LLM request failed")
-                await ack.edit_text(ERROR_TEXT)
+                await edit_ack(ack, ERROR_TEXT)
                 return
 
             # First chunk replaces the ack; the rest follow as replies to it.
@@ -115,6 +138,6 @@ def build_router(config: Config, llm_client: AsyncOpenAI, bot_username: str) -> 
         # when a kind has no dedicated handler (safety net for new types).
         stub = STUB_TEXTS.get(question.kind, OTHER_STUB_TEXT)
         logger.info("Stub reply for content type '%s' from chat %s", question.kind, message.chat.id)
-        await message.reply(stub)
+        await send_reply(message, stub)
 
     return router

@@ -120,12 +120,12 @@ def test_secrets_are_masked_in_repr(tmp_path, env_isolated):
     assert ENV["LLM_API_KEY"] not in str(cfg.secrets)
 
 
-def test_unknown_yaml_keys_are_ignored(tmp_path, env_isolated):
+def test_unknown_yaml_keys_are_rejected(tmp_path, env_isolated):
+    # A typo in a key must fail at startup, not silently disable the setting.
     _write(
         tmp_path,
         yaml_text="""
-        future_section:
-          whatever: 1
+        allowed_chat_idz: [-1001]
         """,
         env_text=f"""
         BOT_TOKEN={ENV['BOT_TOKEN']}
@@ -133,4 +133,41 @@ def test_unknown_yaml_keys_are_ignored(tmp_path, env_isolated):
         LLM_BASE_URL={ENV['LLM_BASE_URL']}
         """,
     )
-    assert load_config(tmp_path).app.allowed_chat_ids == []
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    assert "allowed_chat_idz" in str(exc.value)
+    assert "Extra inputs are not permitted" in str(exc.value)
+
+
+def test_unknown_llm_keys_are_rejected(tmp_path, env_isolated):
+    _write(
+        tmp_path,
+        yaml_text="""
+        llm:
+          modell: typo-model
+        """,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    assert "modell" in str(exc.value)
+
+
+def test_empty_secret_values_are_rejected(tmp_path, env_isolated):
+    # "BOT_TOKEN=" in .env must fail at startup, not at the first Telegram call.
+    _write(
+        tmp_path,
+        env_text="""
+        BOT_TOKEN=
+        LLM_API_KEY=
+        LLM_BASE_URL=
+        """,
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    message = str(exc.value)
+    assert "bot_token" in message and "llm_api_key" in message and "llm_base_url" in message

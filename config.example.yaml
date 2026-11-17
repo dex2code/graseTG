@@ -1,4 +1,7 @@
-# Bot behavior settings. Secrets are kept separately in .env (see .env.example).
+# Bot behavior settings. Copy this file to config.yaml (gitignored) and adjust.
+# Secrets are kept separately in .env (see .env.example).
+# Unknown keys are rejected at startup: a typo fails fast instead of silently
+# disabling a setting.
 
 # IDs of group chats where the bot answers. Everything else is ignored.
 # To find a chat id, see the "How to find a group ID" section in README.

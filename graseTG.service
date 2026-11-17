@@ -2,7 +2,7 @@
 #
 # Deploy on a Linux server (adjust User and paths to your setup):
 #   1. Put the project into /opt/graseTG and run `uv sync --frozen` there
-#   2. Fill in /opt/graseTG/.env and /opt/graseTG/config.yaml
+#   2. Fill in /opt/graseTG/.env; copy config.example.yaml to /opt/graseTG/config.yaml
 #   3. Create the service user: useradd --system --no-create-home grase
 #   4. chown -R grase:grase /opt/graseTG
 #   5. cp graseTG.service /etc/systemd/system/graseTG.service
