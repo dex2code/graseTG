@@ -5,8 +5,10 @@ The bot reacts ONLY to messages addressed to it personally:
 - text: @mention in the message text -> answered (or a format hint);
 - photo: @mention in the caption -> photo stub handler;
 - audio / sticker: extractors are declared but dormant — these types cannot
-  carry an @mention and no other addressing mechanism exists yet;
-- anything else that somehow arrives addressed falls back to kind="other".
+  carry an @mention and no other addressing mechanism exists yet.
+
+The "other" kind is a safety net: if a future extractor returns a kind
+without a dedicated handler, handlers.py answers with the "other" stub.
 
 Unaddressed messages always produce None -> silence, never a reply.
 Adding a new content type = adding one extractor to EXTRACTORS and a handler

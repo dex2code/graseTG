@@ -1,5 +1,6 @@
-"""Handlers: only whitelisted groups; text questions are answered by the LLM,
-every other content type gets a per-type stub reply."""
+"""Handlers: only whitelisted groups. Only addressed messages get replies:
+text goes to the LLM, other addressed kinds get per-type stubs,
+unaddressed messages are silently ignored."""
 
 import logging
 

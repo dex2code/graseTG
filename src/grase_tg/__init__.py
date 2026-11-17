@@ -45,18 +45,22 @@ async def run_bot() -> None:
     bot = Bot(token=config.secrets.bot_token.get_secret_value(), session=session)
 
     # Verify the token before starting the polling loop.
+    # On any fatal startup problem: close the session, log clearly, exit non-zero.
     try:
         me = await bot.get_me()
     except TelegramUnauthorizedError:
+        await bot.session.close()
         logger.error("Telegram rejected the token (Unauthorized) — check BOT_TOKEN in .env")
         raise SystemExit(1) from None
     except Exception:
         # Network, DNS or proxy failures: a clear message instead of a raw traceback.
+        await bot.session.close()
         logger.exception("Failed to reach the Telegram API — check network and TELEGRAM_PROXY_URL")
         raise SystemExit(1) from None
     if me.username is None:
+        await bot.session.close()
         logger.error("The bot has no username — @mentions will not work.")
-        return
+        raise SystemExit(1) from None
 
     dp = Dispatcher()
     dp.include_router(build_router(config, make_client(config), me.username))
