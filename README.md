@@ -21,6 +21,8 @@
 2. **Настройки** — `config.yaml`:
    - `allowed_chat_ids` — ID разрешённых групп;
    - `llm.model` — имя модели на твоём backend'е;
+   - `llm.enable_thinking` — «размышление» модели (`chat_template_kwargs.enable_thinking`
+     для vLLM/SGLang-подобных backend'ов, Qwen3 и т.п.);
    - `system_prompt` — характер ответов (замени заглушку на свой промпт).
 
 ## Как узнать ID группы

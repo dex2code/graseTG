@@ -33,6 +33,9 @@ class LlmSettings(BaseModel):
     temperature: float = 0.7
     max_tokens: int = 1024
     timeout_seconds: float = 60.0
+    # Управление «размышлением» модели: передаётся как
+    # chat_template_kwargs={"enable_thinking": ...} (vLLM/SGLang, Qwen3 и т.п.)
+    enable_thinking: bool = False
 
 
 class AppConfig(BaseModel):

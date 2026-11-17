@@ -12,6 +12,7 @@ llm:
   temperature: 0.7
   max_tokens: 1024
   timeout_seconds: 60
+  enable_thinking: false   # «размышление» модели (Qwen3-подобные backend'ы)
 
 # Системный промпт: характер и правила ответов. Замени на свой.
 system_prompt: |

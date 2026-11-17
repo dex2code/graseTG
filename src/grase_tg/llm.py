@@ -25,10 +25,12 @@ async def ask_llm(client: AsyncOpenAI, config: Config, question: str) -> str:
         model=config.app.llm.model,
         temperature=config.app.llm.temperature,
         max_tokens=config.app.llm.max_tokens,
+        stream=False,
         messages=[
             {"role": "system", "content": config.app.system_prompt},
             {"role": "user", "content": question},
         ],
+        extra_body={"chat_template_kwargs": {"enable_thinking": config.app.llm.enable_thinking}},
     )
     answer = (response.choices[0].message.content or "").strip()
     return answer or EMPTY_ANSWER

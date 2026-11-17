@@ -2,11 +2,10 @@
 
 import logging
 
-from aiogram import Bot, F, Router
-from aiogram.enums import ChatAction, ChatType, MessageEntityType
+from aiogram import F, Router
+from aiogram.enums import ChatType, MessageEntityType
 from aiogram.filters import BaseFilter
 from aiogram.types import Message
-from aiogram.utils.chat_action import ChatActionSender
 from openai import AsyncOpenAI
 
 from .config import Config
@@ -19,6 +18,7 @@ FORMAT_HINT = (
     "Чтобы задать вопрос, напиши его в том же сообщении после упоминания:\n"
     "«@{username} как варить борщ?»"
 )
+ACK_TEXT = "Принял запрос, думаю…"
 ERROR_TEXT = "Не удалось получить ответ от модели. Попробуй ещё раз позже."
 
 
@@ -94,7 +94,7 @@ def build_router(config: Config, llm_client: AsyncOpenAI, bot_username: str) -> 
         F.chat.type.in_({ChatType.GROUP, ChatType.SUPERGROUP}),
         AllowedChatsFilter(frozenset(config.app.allowed_chat_ids)),
     )
-    async def on_group_message(message: Message, bot: Bot) -> None:
+    async def on_group_message(message: Message) -> None:
         span = find_bot_mention(message, bot_username)
         if span is None:
             return  # тэгнули не бота — молча игнорируем
@@ -105,15 +105,20 @@ def build_router(config: Config, llm_client: AsyncOpenAI, bot_username: str) -> 
             return
 
         logger.info("Вопрос из чата %s: %s", message.chat.id, question)
-        async with ChatActionSender(bot=bot, chat_id=message.chat.id, action=ChatAction.TYPING):
-            try:
-                answer = await ask_llm(llm_client, config, question)
-            except Exception:
-                logger.exception("Ошибка при обращении к LLM")
-                await message.reply(ERROR_TEXT)
-                return
+        ack = await message.reply(ACK_TEXT)
+        try:
+            answer = await ask_llm(llm_client, config, question)
+        except Exception:
+            logger.exception("Ошибка при обращении к LLM")
+            await ack.edit_text(ERROR_TEXT)
+            return
 
-        for chunk in split_text(answer):
-            await message.reply(chunk)
+        chunks = split_text(answer)
+        try:
+            await ack.edit_text(chunks[0])
+            for chunk in chunks[1:]:
+                await ack.reply(chunk)
+        except Exception:
+            logger.exception("Не удалось отправить ответ в чат %s", message.chat.id)
 
     return router
