@@ -9,7 +9,7 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
   `@grase_bot how do I cook borscht?`
 - Private messages and unknown groups are silently ignored.
 - Each question is sent without chat history to an OpenAI-compatible API;
-  the answer arrives as a reply.
+  long answers are split into chunks.
 - No memory: every question is processed independently.
 - The bot acknowledges immediately ("Got it, thinking…"), then edits that message
   with the model's answer. If the model fails, the same message shows the error.

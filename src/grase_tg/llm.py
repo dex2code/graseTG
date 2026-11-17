@@ -1,12 +1,8 @@
 """Calls to the OpenAI-compatible backend."""
 
-import logging
-
 from openai import AsyncOpenAI
 
 from .config import Config
-
-logger = logging.getLogger(__name__)
 
 EMPTY_ANSWER = "The model returned an empty response."
 

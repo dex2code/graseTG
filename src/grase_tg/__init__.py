@@ -50,6 +50,10 @@ async def run_bot() -> None:
     except TelegramUnauthorizedError:
         logger.error("Telegram rejected the token (Unauthorized) — check BOT_TOKEN in .env")
         raise SystemExit(1) from None
+    except Exception:
+        # Network, DNS or proxy failures: a clear message instead of a raw traceback.
+        logger.exception("Failed to reach the Telegram API — check network and TELEGRAM_PROXY_URL")
+        raise SystemExit(1) from None
     if me.username is None:
         logger.error("The bot has no username — @mentions will not work.")
         return
