@@ -171,7 +171,9 @@ class StubLLMServer:
 
     Default: answers with `reply_content`. For tool-loop tests, `script`
     holds raw assistant message dicts popped one per request (e.g. a
-    tool_calls message followed by a plain-content message)."""
+    tool_calls message followed by a plain-content message). A dict may
+    carry "_finish_reason" ("length" etc.) — popped before serialization,
+    never sent inside the message."""
 
     def __init__(self) -> None:
         self.requests: list[dict] = []
@@ -195,7 +197,9 @@ class StubLLMServer:
                 stub.requests.append(json.loads(body))
                 if stub.script:
                     message = stub.script.pop(0)
-                    finish_reason = "tool_calls" if message.get("tool_calls") else "stop"
+                    finish_reason = message.pop("_finish_reason", None) or (
+                        "tool_calls" if message.get("tool_calls") else "stop"
+                    )
                 else:
                     message = {"role": "assistant", "content": stub.reply_content}
                     finish_reason = "stop"

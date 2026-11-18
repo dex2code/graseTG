@@ -123,6 +123,64 @@ async def test_ask_llm_sends_reply_context(config_with_stub):
     ]
 
 
+# --- empty / truncated answers: diagnostics in the log, no content logged ---
+
+
+async def test_empty_answer_logs_diagnosis_but_never_content(config_with_stub, caplog):
+    # The prod failure report: 200 OK, 67s of generation, empty content —
+    # a reasoning model spent the whole max_tokens budget on thinking
+    # (reasoning moved to reasoning_content, finish_reason=length). The log
+    # must say WHY, but must not contain the question text (privacy rule).
+    import logging
+
+    cfg, stub = config_with_stub
+    stub.reply_content = ""
+    with caplog.at_level(logging.WARNING, logger="grase_tg.llm"):
+        answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="TOPSECRET-QUESTION"))
+    assert answer == cfg.app.messages.empty_answer
+    assert "finish_reason=stop" in caplog.text
+    assert "completion_tokens=1" in caplog.text
+    assert "reasoning_content=absent" in caplog.text
+    assert "TOPSECRET-QUESTION" not in caplog.text
+
+
+async def test_reasoning_eaten_budget_is_visible_in_the_log(config_with_stub, caplog):
+    # The exact mechanism behind the prod report: reasoning_content present,
+    # content empty, finish_reason=length -> two warnings naming the knob
+    # (max_tokens) and the fact that reasoning was there.
+    import logging
+
+    cfg, stub = config_with_stub
+    stub.script = [
+        {
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "long thinking about the tool result...",
+            "_finish_reason": "length",
+        }
+    ]
+    with caplog.at_level(logging.WARNING, logger="grase_tg.llm"):
+        answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"))
+    assert answer == cfg.app.messages.empty_answer
+    assert "finish_reason=length" in caplog.text
+    assert "reasoning_content=present" in caplog.text
+    assert "llm.max_tokens" in caplog.text
+
+
+async def test_truncated_answer_with_content_warns(config_with_stub, caplog):
+    # finish_reason=length WITH visible content: the answer is returned
+    # (half an answer beats a failure notice), but the truncation is logged.
+    import logging
+
+    cfg, stub = config_with_stub
+    stub.reply_content = "partial answer"
+    stub.script = [{"role": "assistant", "content": "partial answer", "_finish_reason": "length"}]
+    with caplog.at_level(logging.WARNING, logger="grase_tg.llm"):
+        answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"))
+    assert answer == "partial answer"
+    assert "hit llm.max_tokens" in caplog.text
+
+
 # --- tools field presence ---
 
 

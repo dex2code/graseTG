@@ -1,5 +1,6 @@
 """Calls to the OpenAI-compatible backend."""
 
+import logging
 from datetime import datetime
 from typing import Any
 
@@ -14,6 +15,8 @@ from openai.types.chat import (
 from .config import Config
 from .content import Question
 from .tools import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 # Fixed English weekday names: the system locale must not change what the
 # model is told (strftime with %A would be locale-dependent).
@@ -159,7 +162,29 @@ async def ask_llm(
         message = response.choices[0].message
         if not message.tool_calls:
             answer = (message.content or "").strip()
-            # An empty model answer is replaced with the configured notice text.
+            if not answer:
+                # 200 OK with empty content is almost always a reasoning model
+                # that spent the whole max_tokens budget on thinking: llama.cpp
+                # counts reasoning tokens toward max_tokens and moves the text
+                # into reasoning_content, leaving content empty with
+                # finish_reason="length". Log the diagnosis — counts and
+                # booleans only, never any content (privacy rule).
+                extra = getattr(message, "model_extra", None) or {}
+                logger.warning(
+                    "Empty model answer: finish_reason=%s, completion_tokens=%s, prompt_tokens=%s, reasoning_content=%s",
+                    response.choices[0].finish_reason,
+                    getattr(response.usage, "completion_tokens", None),
+                    getattr(response.usage, "prompt_tokens", None),
+                    "present" if extra.get("reasoning_content") else "absent",
+                )
+            if response.choices[0].finish_reason == "length":
+                # A truncated (or fully thinking-consumed) generation: the user
+                # gets text that just stops — the log must say why.
+                logger.warning(
+                    "Generation hit llm.max_tokens=%s — reasoning tokens count toward the limit; "
+                    "increase max_tokens or disable thinking (llm.enable_thinking)",
+                    config.app.llm.max_tokens,
+                )
             return answer or config.app.messages.empty_answer
         if rounds_left == 0:
             # The budget is spent while the model keeps asking for tools:
