@@ -105,9 +105,19 @@ async def ask_llm(
     tools=None) omits the `tools` field entirely: byte-for-byte the
     single-request behavior of earlier versions.
     """
+    # Sampling overrides, None = the field is not sent: the backend applies
+    # its own defaults. Both are standard OpenAI fields -> typed kwargs.
+    sampling: dict[str, Any] = {
+        key: value
+        for key, value in (
+            ("top_p", config.app.llm.top_p),
+            ("presence_penalty", config.app.llm.presence_penalty),
+        )
+        if value is not None
+    }
     # Model "thinking" toggle (vLLM/SGLang, Qwen3-style). Sent only when
     # enable_thinking is true/false; None means the field is omitted entirely.
-    extra_body = None
+    extra_body: dict[str, Any] | None = None
     if config.app.llm.enable_thinking is not None:
         extra_body = {"chat_template_kwargs": {"enable_thinking": config.app.llm.enable_thinking}}
 
@@ -126,6 +136,7 @@ async def ask_llm(
             stream=False,
             messages=messages,
             extra_body=extra_body,
+            **sampling,
             **kwargs,
         )
         message = response.choices[0].message

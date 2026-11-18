@@ -13,6 +13,10 @@ allowed_chat_ids: []
 llm:
   model: gpt-5-mini        # change to your backend's model name
   temperature: 0.7         # creativity: 0 = deterministic, higher = more varied
+  # Sampling overrides (optional, standard OpenAI fields — vanilla-API safe).
+  # Unset = the field is not sent at all and the backend applies its default.
+  # top_p: 0.9             # nucleus sampling cutoff, (0, 1]
+  # presence_penalty: 0.0  # penalize tokens that already appeared, [-2, 2]
   max_tokens: 1024         # upper bound for a single answer, in tokens
   timeout_seconds: 60      # give up on a slow model after this
   # Max tool-call rounds per question (tools live in the `tools:` section

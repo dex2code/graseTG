@@ -51,6 +51,12 @@ class LlmSettings(BaseModel):
     # true / false — send the field; None — do not send it at all
     # (safe for vanilla OpenAI-compatible APIs like api.openai.com).
     enable_thinking: bool | None = None
+    # Sampling overrides, None = the field is not sent at all: the backend
+    # then applies its own defaults (values baked in here would silently
+    # change behavior for anyone who has not set them). Both are standard
+    # OpenAI fields — vanilla-API safe, sent as typed kwargs.
+    top_p: float | None = Field(default=None, gt=0.0, le=1.0)  # nucleus sampling cutoff
+    presence_penalty: float | None = Field(default=None, ge=-2.0, le=2.0)
     # Max tool-call rounds per question (docs/mcp-tools-spec.md §4): the model
     # may request tool executions up to this many times. ge=1 on purpose: 0
     # would mean "advertise tools, but never run them" — a trap. Tools on/off

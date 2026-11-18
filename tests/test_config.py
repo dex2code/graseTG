@@ -220,6 +220,10 @@ def test_format_hint_unknown_placeholder_rejected(tmp_path, env_isolated):
         ("max_tokens: 0", "max_tokens"),
         ("timeout_seconds: 0", "timeout_seconds"),
         ("model: ''", "model"),
+        ("top_p: 0", "top_p"),
+        ("top_p: 1.5", "top_p"),
+        ("presence_penalty: -3", "presence_penalty"),
+        ("presence_penalty: 3", "presence_penalty"),
     ],
 )
 def test_out_of_range_llm_settings_rejected_at_startup(tmp_path, env_isolated, llm_yaml, bad_field):

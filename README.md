@@ -59,8 +59,10 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
 2. **Settings** — copy `config.example.yaml` to `config.yaml` (gitignored) and adjust:
    - `allowed_chat_ids` — IDs of the allowed groups;
    - `llm.model` — the model name on your backend;
-   - `llm.temperature`, `llm.max_tokens`, `llm.timeout_seconds` — generation
-     parameters and the per-request HTTP timeout;
+   - `llm.temperature`, optional sampling overrides (`llm.top_p`,
+     `llm.presence_penalty`), `llm.max_tokens`, `llm.timeout_seconds` —
+     generation parameters and the per-request HTTP timeout; an unset
+     override is not sent at all, so the backend applies its own default;
    - `llm.enable_thinking` — model "thinking" toggle (`chat_template_kwargs.enable_thinking`
      for vLLM/SGLang-style backends, Qwen3, etc.): `true`/`false` send the field,
      `null` omits it entirely (safest for plain OpenAI APIs);

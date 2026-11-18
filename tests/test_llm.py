@@ -206,6 +206,30 @@ async def test_thinking_none_omits_field(config_with_stub):
     assert "chat_template_kwargs" not in stub.requests[-1]
 
 
+# --- sampling overrides ---
+
+
+async def test_sampling_defaults_omitted(config_with_stub):
+    # Unset overrides must not appear in the request at all: the backend
+    # applies its own defaults (temperature is unconditional and stays).
+    cfg, stub = config_with_stub
+    await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"))
+    body = stub.requests[-1]
+    assert "top_p" not in body
+    assert "presence_penalty" not in body
+    assert body["temperature"] == cfg.app.llm.temperature
+
+
+async def test_sampling_overrides_sent(config_with_stub):
+    cfg, stub = config_with_stub
+    cfg.app.llm.top_p = 0.9
+    cfg.app.llm.presence_penalty = 0.5
+    await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"))
+    body = stub.requests[-1]
+    assert body["top_p"] == 0.9
+    assert body["presence_penalty"] == 0.5
+
+
 async def test_thinking_true_and_false_sent_explicitly(config_with_stub):
     cfg, stub = config_with_stub
     for value in (True, False):
