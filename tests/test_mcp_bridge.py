@@ -227,16 +227,35 @@ async def test_unreachable_server_raises_network_error_and_leaves_clean_stack():
 # --- auth headers ---
 
 
-def test_auth_headers_bearer_from_env(env_isolated):
+def test_auth_headers_bearer_from_env(tmp_path, env_isolated):
     env_isolated.setenv("MCP_TEST_TOKEN", "sekrit")
     settings = McpSettings(url="http://mcp.test/mcp", auth_env="MCP_TEST_TOKEN")
-    assert _auth_headers(settings) == {"Authorization": "Bearer sekrit"}
+    assert _auth_headers(settings, config_dir=tmp_path) == {"Authorization": "Bearer sekrit"}
 
 
-def test_auth_headers_missing_env_var_is_value_error(env_isolated):
+def test_auth_token_from_dotenv_file(tmp_path, env_isolated):
+    # Regression (prod failure report): a token defined ONLY in .env must
+    # work — the error text and the docs both say "add it to .env or the
+    # environment", and v0.2.1 broke that promise by consulting os.environ
+    # alone. Same precedence rule as the Secrets fields: file is the fallback.
+    (tmp_path / ".env").write_text("MCP_DOTENV_TOKEN=sekrit-from-file\n", encoding="utf-8")
+    settings = McpSettings(url="http://mcp.test/mcp", auth_env="MCP_DOTENV_TOKEN")
+    assert _auth_headers(settings, config_dir=tmp_path) == {"Authorization": "Bearer sekrit-from-file"}
+
+
+def test_environment_wins_over_dotenv_file(tmp_path, env_isolated):
+    (tmp_path / ".env").write_text("MCP_DUEL_TOKEN=from-file\n", encoding="utf-8")
+    env_isolated.setenv("MCP_DUEL_TOKEN", "from-os")
+    settings = McpSettings(url="http://mcp.test/mcp", auth_env="MCP_DUEL_TOKEN")
+    assert _auth_headers(settings, config_dir=tmp_path) == {"Authorization": "Bearer from-os"}
+
+
+def test_auth_headers_missing_env_var_is_value_error(tmp_path, env_isolated):
+    # tmp config_dir: an empty .env dir, so the lookup cannot accidentally
+    # succeed via the repository's real .env in the working directory.
     settings = McpSettings(url="http://mcp.test/mcp", auth_env="MCP_ABSENT_TOKEN")
-    with pytest.raises(ValueError, match="MCP_ABSENT_TOKEN"):
-        _auth_headers(settings)
+    with pytest.raises(ValueError, match=r"MCP_ABSENT_TOKEN.*\.env"):
+        _auth_headers(settings, config_dir=tmp_path)
 
 
 def test_auth_headers_without_auth_env_are_empty():

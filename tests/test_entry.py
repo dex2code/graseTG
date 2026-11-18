@@ -73,9 +73,9 @@ def test_supported_schemes_are_exactly_the_connector_ones():
 # --- startup failures are clean (a one-line error + SystemExit(1), no traceback) ---
 
 
-def _write_env(base, token: str = "123456:ABC-test-token") -> None:
+def _write_env(base, token: str = "123456:ABC-test-token", extra: str = "") -> None:
     (base / ".env").write_text(
-        f"BOT_TOKEN={token}\nLLM_API_KEY=k\nLLM_BASE_URL=http://llm.test/v1\n", encoding="utf-8"
+        f"BOT_TOKEN={token}\nLLM_API_KEY=k\nLLM_BASE_URL=http://llm.test/v1\n{extra}", encoding="utf-8"
     )
 
 
@@ -130,8 +130,8 @@ async def test_malformed_bot_token_exits_cleanly(tmp_path, monkeypatch, caplog, 
 # --- MCP registry wiring (docs/mcp-tools-spec.md §6.1) ---
 
 
-def _write_mcp_config(base, yaml_text: str) -> None:
-    _write_env(base)
+def _write_mcp_config(base, yaml_text: str, extra: str = "") -> None:
+    _write_env(base, extra=extra)
     (base / "config.yaml").write_text(yaml_text, encoding="utf-8")
 
 
@@ -149,6 +149,29 @@ async def test_missing_mcp_auth_env_exits_cleanly(tmp_path, monkeypatch, caplog,
     assert exc.value.code == 1
     assert "Invalid tools.mcp configuration" in caplog.text
     assert "MCP_ABSENT_TOKEN" in caplog.text
+
+
+async def test_mcp_token_defined_only_in_dotenv_is_found(tmp_path, monkeypatch, caplog, env_isolated):
+    # Regression for the prod failure report: MCP_TOKEN defined ONLY in .env
+    # (exactly what the error text suggests) must be FOUND — v0.2.1 consulted
+    # os.environ alone, so a .env-only token failed the startup as a config
+    # error while BOT_TOKEN from the same file worked. With the token
+    # resolved, the only remaining failure is the unreachable server —
+    # infrastructure — so the bot degrades instead of exiting.
+    monkeypatch.delenv("MCP_TOKEN", raising=False)
+    _write_mcp_config(
+        tmp_path,
+        "tools:\n  mcp:\n    url: http://127.0.0.1:1/mcp\n    auth_env: MCP_TOKEN\n    timeout_seconds: 2\n",
+        extra="MCP_TOKEN=sekrit-from-dotenv\n",
+    )
+    monkeypatch.chdir(tmp_path)
+    config = load_config(tmp_path)
+    async with AsyncExitStack() as stack:
+        with caplog.at_level(logging.WARNING, logger="grase_tg"):
+            registry = await _build_mcp_registry(config, stack, tmp_path)
+    assert registry is None
+    assert "running without tools" in caplog.text
+    assert "Invalid tools.mcp configuration" not in caplog.text
 
 
 async def test_unreachable_mcp_server_degrades_to_none(tmp_path, monkeypatch, caplog, env_isolated):

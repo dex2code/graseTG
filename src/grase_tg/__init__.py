@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
-
 from contextlib import AsyncExitStack
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import yaml
@@ -53,10 +53,16 @@ def _build_session(proxy_url: str) -> AiohttpSession:
     return AiohttpSession(proxy=proxy_url)
 
 
-async def _build_mcp_registry(config: Config, stack: AsyncExitStack) -> ToolRegistry | None:
+async def _build_mcp_registry(
+    config: Config,
+    stack: AsyncExitStack,
+    config_dir: Path | None = None,
+) -> ToolRegistry | None:
     """Wire the single configured MCP server (if any) into a ToolRegistry.
 
-    The two failure classes from docs/mcp-tools-spec.md §6.1:
+    `config_dir` locates the .env fallback for the auth_env token; None = the
+    bot's default config dir. The two failure classes from
+    docs/mcp-tools-spec.md §6.1:
     - configuration errors (bad url, missing auth env var) raise ValueError
       -> clean startup exit: retries cannot help, the user must fix the config;
     - network unavailability -> warning + None: a family bot without tools
@@ -67,7 +73,7 @@ async def _build_mcp_registry(config: Config, stack: AsyncExitStack) -> ToolRegi
     if mcp_settings is None:
         return None
     try:
-        return await connect_mcp(mcp_settings, stack)
+        return await connect_mcp(mcp_settings, stack, config_dir)
     except ValueError as error:
         logger.error("Invalid tools.mcp configuration: %s", error)
         raise SystemExit(1) from None
@@ -106,7 +112,7 @@ async def run_bot() -> None:
     # configured) must live as long as the bot and be closed on every way out,
     # including the SystemExit paths and KeyboardInterrupt during polling.
     async with AsyncExitStack() as stack:
-        registry = await _build_mcp_registry(config, stack)
+        registry = await _build_mcp_registry(config, stack, config_dir)
 
         # Optional HTTP/SOCKS proxy for Telegram traffic only (LLM requests stay direct).
         session = None

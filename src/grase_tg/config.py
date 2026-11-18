@@ -23,6 +23,21 @@ def default_config_dir() -> Path:
     return Path.cwd()
 
 
+def env_value(name: str, base_dir: Path | None = None) -> str | None:
+    """Value of one environment variable: OS environment wins over the .env
+    file, empty anywhere = unset (None).
+
+    The same precedence rule as _read_secrets, generalized to variables
+    outside the fixed Secrets fields — e.g. the variable NAMED by
+    tools.mcp.auth_env. Without this the token would only ever be found in
+    the real environment, and defining it in .env (as the error text and the
+    docs both suggest) would silently fail at startup.
+    """
+    base = base_dir or default_config_dir()
+    file_values = dotenv_values(base / ".env", interpolate=False)
+    return os.environ.get(name) or file_values.get(name) or None
+
+
 class Secrets(BaseModel):
     """Secrets, collected from the OS environment and the project-root .env file."""
 

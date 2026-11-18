@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from grase_tg.config import CONFIG_DIR_ENV, default_config_dir, load_config
+from grase_tg.config import CONFIG_DIR_ENV, default_config_dir, env_value, load_config
 
 
 ENV = {
@@ -384,3 +384,39 @@ def test_tools_config_errors_fail_at_startup(tmp_path, env_isolated, tools_yaml,
     with pytest.raises(ValidationError) as exc:
         load_config(tmp_path)
     assert bad_piece in str(exc.value)
+
+
+# --- env_value: the one precedence rule behind secrets AND mcp.auth_env ---
+
+
+def test_env_value_environment_wins_over_dotenv_file(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("PROBE_A=from-file\n", encoding="utf-8")
+    monkeypatch.setenv("PROBE_A", "from-os")
+    assert env_value("PROBE_A", tmp_path) == "from-os"
+
+
+def test_env_value_falls_back_to_dotenv_file(tmp_path, monkeypatch):
+    (tmp_path / ".env").write_text("PROBE_B=from-file\n", encoding="utf-8")
+    monkeypatch.delenv("PROBE_B", raising=False)
+    assert env_value("PROBE_B", tmp_path) == "from-file"
+
+
+def test_env_value_empty_means_unset(tmp_path, monkeypatch):
+    # "X=" in .env or an empty exported value must behave like absent:
+    # pydantic's min_length on Secrets relies on this.
+    (tmp_path / ".env").write_text("PROBE_C=\n", encoding="utf-8")
+    monkeypatch.setenv("PROBE_C", "")
+    assert env_value("PROBE_C", tmp_path) is None
+
+
+def test_env_value_absent_everywhere_is_none(tmp_path, monkeypatch):
+    monkeypatch.delenv("PROBE_D", raising=False)
+    assert env_value("PROBE_D", tmp_path) is None
+
+
+def test_env_value_is_literal_not_interpolated(tmp_path, monkeypatch):
+    # A token containing $ must survive verbatim: dotenv's default
+    # interpolation would expand (or empty) it — same rule as _read_secrets.
+    (tmp_path / ".env").write_text("PROBE_E=ghp_$urely_${nope}\n", encoding="utf-8")
+    monkeypatch.delenv("PROBE_E", raising=False)
+    assert env_value("PROBE_E", tmp_path) == "ghp_$urely_${nope}"
