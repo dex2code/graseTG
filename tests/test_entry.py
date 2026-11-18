@@ -1,11 +1,14 @@
-"""Tests for entry-point helpers: proxy session building, log masking, startup failures."""
+"""Tests for entry-point helpers: proxy session building, log masking, startup failures,
+MCP registry wiring."""
 
 import logging
+from contextlib import AsyncExitStack
 
 import pytest
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from grase_tg import SUPPORTED_PROXY_SCHEMES, _build_session, _masked_proxy, run_bot
+from grase_tg import SUPPORTED_PROXY_SCHEMES, _build_mcp_registry, _build_session, _masked_proxy, run_bot
+from grase_tg.config import load_config
 
 
 # --- _masked_proxy ---
@@ -122,3 +125,52 @@ async def test_malformed_bot_token_exits_cleanly(tmp_path, monkeypatch, caplog, 
             await run_bot()
     assert exc.value.code == 1
     assert "BOT_TOKEN" in caplog.text
+
+
+# --- MCP registry wiring (docs/mcp-tools-spec.md §6.1) ---
+
+
+def _write_mcp_config(base, yaml_text: str) -> None:
+    _write_env(base)
+    (base / "config.yaml").write_text(yaml_text, encoding="utf-8")
+
+
+async def test_missing_mcp_auth_env_exits_cleanly(tmp_path, monkeypatch, caplog, env_isolated):
+    # A missing auth_env variable is a CONFIG error: clean startup exit
+    # (one-line error, SystemExit(1)) — connecting unauthenticated by
+    # accident would be worse than not connecting.
+    _write_mcp_config(tmp_path, "tools:\n  mcp:\n    url: http://mcp.test/mcp\n    auth_env: MCP_ABSENT_TOKEN\n")
+    monkeypatch.chdir(tmp_path)
+    config = load_config(tmp_path)
+    async with AsyncExitStack() as stack:
+        with caplog.at_level(logging.ERROR, logger="grase_tg"):
+            with pytest.raises(SystemExit) as exc:
+                await _build_mcp_registry(config, stack)
+    assert exc.value.code == 1
+    assert "Invalid tools.mcp configuration" in caplog.text
+    assert "MCP_ABSENT_TOKEN" in caplog.text
+
+
+async def test_unreachable_mcp_server_degrades_to_none(tmp_path, monkeypatch, caplog, env_isolated):
+    # An unreachable server is INFRASTRUCTURE, not config: the bot must keep
+    # starting (registry=None, warning in the log) — a restart race with the
+    # MCP server must not take the whole bot down.
+    _write_mcp_config(tmp_path, "tools:\n  mcp:\n    url: http://127.0.0.1:1/mcp\n    timeout_seconds: 2\n")
+    monkeypatch.chdir(tmp_path)
+    config = load_config(tmp_path)
+    async with AsyncExitStack() as stack:
+        with caplog.at_level(logging.WARNING, logger="grase_tg"):
+            registry = await _build_mcp_registry(config, stack)
+    assert registry is None
+    assert "running without tools" in caplog.text
+
+
+async def test_no_mcp_section_builds_no_registry(tmp_path, monkeypatch, caplog, env_isolated):
+    # Default config (no tools section): no MCP machinery at all.
+    _write_env(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    config = load_config(tmp_path)
+    async with AsyncExitStack() as stack:
+        registry = await _build_mcp_registry(config, stack)
+    assert registry is None
+    assert "MCP" not in caplog.text

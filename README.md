@@ -26,6 +26,9 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
   extensible — new types are added as extractors in `src/grase_tg/content.py`.
 - Each question is sent to an OpenAI-compatible API without chat history;
   long answers are split into chunks.
+- The current date is injected into every request ("tomorrow" must resolve
+  to a real date). If a `tools:` section is configured, the model may call
+  tools exposed by one MCP server — see "External tools (MCP)" below.
 - No memory: every question is processed independently. The one exception:
   a reply to a bot answer carries that answer into the request as dialogue
   context, so follow-up questions ("and what about chicken?") keep their
@@ -46,6 +49,8 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
    - `BOT_TOKEN` — the token from [@BotFather](https://t.me/BotFather);
    - `LLM_BASE_URL` — an OpenAI-compatible API base URL (usually ends with `/v1`);
    - `LLM_API_KEY` — the API access key;
+   - `MCP_TOKEN` — (optional) bearer token for the MCP tool server: name it
+     in `config.yaml` via `tools.mcp.auth_env`;
    - `TELEGRAM_PROXY_URL` — (optional) proxy for Telegram traffic:
      `http://proxy.local:8080` or `socks5://proxy.local:1080`, with auth
      `scheme://user:password@proxy.local:port`. Supported schemes: `http`,
@@ -59,6 +64,10 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
    - `llm.enable_thinking` — model "thinking" toggle (`chat_template_kwargs.enable_thinking`
      for vLLM/SGLang-style backends, Qwen3, etc.): `true`/`false` send the field,
      `null` omits it entirely (safest for plain OpenAI APIs);
+   - `llm.tool_rounds` — max tool-call rounds per question (default 2, must be ≥ 1);
+   - `tools.mcp` — the single MCP tool server (streamable HTTP): `url`,
+     optional `auth_env` (a .env variable NAME holding the token),
+     `timeout_seconds`, optional `allow` whitelist. Absent → tools disabled;
    - `system_prompt` — answer style and rules (replace the placeholder with your own);
    - `messages` — the bot's user-facing texts (ack, errors, stubs). Defaults
      are English — translate them to your language here.
@@ -78,6 +87,30 @@ root — `uv run grase-tg` does that by default.
 
 > Privacy mode must be enabled for the bot (the default from @BotFather) —
 > that way Telegram only delivers `@mentions`, commands and replies to the bot.
+
+## External tools (MCP)
+
+With a `tools:` section in `config.yaml` the bot bridges **one MCP server**
+(streamable HTTP) into OpenAI tool calling: the model decides when a question
+needs external data (weather, exchange rates, ...), the bot executes the call
+and feeds the result back — up to `llm.tool_rounds` rounds per question.
+Knowledge questions (recipes, ...) never trigger tools.
+
+Requirements on the backend: llama-server with tool calling (run it with
+`--jinja`) and a tool-capable model (Qwen3, Llama 3.x, ...).
+
+- Exactly one server, by design: `tools.mcp` is a single block, not a list —
+  describing a second server is impossible (see `docs/mcp-tools-spec.md`).
+- Tool arguments are validated by the MCP server; a failing tool never
+  crashes the answer — the error text goes back to the model, which words
+  the apology.
+- If the server is unreachable at startup, the bot logs a warning and runs
+  without tools. A broken config (bad `url`, missing `auth_env` variable)
+  is a clean startup failure.
+- Tool calls take extra time: worst case ~`tool_rounds` × (LLM + tool
+  timeout). The "Got it, thinking…" ack covers the wait.
+- Privacy: tool names and argument counts go to the logs; argument values
+  and question texts do not.
 
 ## Running
 

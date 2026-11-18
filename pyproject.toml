@@ -1,6 +1,6 @@
 [project]
 name = "grase-tg"
-version = "0.1.0"
+version = "0.2.0"
 description = "Family Telegram bot: answers @mentions in whitelisted group chats via an OpenAI-compatible LLM API"
 readme = "README.md"
 license = "MIT"
@@ -13,6 +13,11 @@ dependencies = [
     # Not imported directly: aiogram's AiohttpSession uses it to route proxied
     # sessions (http/https/socks4/socks5) through aiohttp_socks.ProxyConnector.
     "aiohttp-socks>=0.12.0,<0.13",
+    # Imported directly by mcp_bridge: httpx.InvalidURL is translated into a
+    # config error (ValueError), so a url typo fails fast instead of masking
+    # itself as "server unreachable". Already pulled in transitively by mcp.
+    "httpx>=0.28,<1",
+    "mcp>=1,<2",
     "openai>=3.52.0,<4",
     "pydantic>=2.14,<3",
     "python-dotenv>=1.2.4,<2",

@@ -1,11 +1,15 @@
-"""Tests for the LLM layer: request payload, thinking toggle, empty-answer handling."""
+"""Tests for the LLM layer: request payload, thinking toggle, tool loop, empty-answer handling."""
+
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import SecretStr
 
+from conftest import StubToolRegistry
+
 from grase_tg.config import AppConfig, Config, Secrets, LlmSettings
 from grase_tg.content import Question
-from grase_tg.llm import _build_messages, ask_llm, make_client
+from grase_tg.llm import _build_messages, _date_line, ask_llm, make_client
 
 
 def _config(llm_settings: LlmSettings | None = None, base_url: str = "http://llm.test/v1") -> Config:
@@ -15,15 +19,28 @@ def _config(llm_settings: LlmSettings | None = None, base_url: str = "http://llm
     )
 
 
+# --- _date_line ---
+
+def test_date_line_format_with_offset():
+    now = datetime(2026, 11, 18, 12, 0, tzinfo=timezone(timedelta(hours=3)))
+    assert _date_line(now) == "Current date: 2026-11-18 (Wednesday), UTC+03:00."
+
+
+def test_date_line_format_utc():
+    now = datetime(2026, 1, 5, 23, 30, tzinfo=timezone.utc)
+    assert _date_line(now) == "Current date: 2026-01-05 (Monday), UTC+00:00."
+
+
 # --- _build_messages ---
 
-def test_build_messages_text_shape():
+def test_build_messages_prepends_system_prompt_with_current_date():
     cfg = _config()
     messages = _build_messages(cfg, Question(kind="text", text="hello"))
-    assert messages == [
-        {"role": "system", "content": cfg.app.system_prompt},
-        {"role": "user", "content": "hello"},
-    ]
+    assert messages[0]["role"] == "system"
+    assert isinstance(messages[0]["content"], str)
+    assert messages[0]["content"].startswith(cfg.app.system_prompt)
+    assert "Current date:" in messages[0]["content"]  # the model has no clock
+    assert messages[1] == {"role": "user", "content": "hello"}
 
 
 def test_build_messages_includes_reply_context_as_assistant():
@@ -32,11 +49,8 @@ def test_build_messages_includes_reply_context_as_assistant():
         cfg,
         Question(kind="text", text="and what about chicken?", context="Borscht takes 2 hours."),
     )
-    assert messages == [
-        {"role": "system", "content": cfg.app.system_prompt},
-        {"role": "assistant", "content": "Borscht takes 2 hours."},
-        {"role": "user", "content": "and what about chicken?"},
-    ]
+    assert messages[1] == {"role": "assistant", "content": "Borscht takes 2 hours."}
+    assert messages[2] == {"role": "user", "content": "and what about chicken?"}
 
 
 def test_build_messages_rejects_non_text():
@@ -59,11 +73,130 @@ async def test_ask_llm_sends_full_payload(config_with_stub):
 async def test_ask_llm_sends_reply_context(config_with_stub):
     cfg, stub = config_with_stub
     await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q2", context="prev answer"))
-    assert stub.requests[-1]["messages"] == [
-        {"role": "system", "content": cfg.app.system_prompt},
+    body_messages = stub.requests[-1]["messages"]
+    assert body_messages[0]["role"] == "system"
+    assert body_messages[0]["content"].startswith(cfg.app.system_prompt)
+    assert body_messages[1:] == [
         {"role": "assistant", "content": "prev answer"},
         {"role": "user", "content": "q2"},
     ]
+
+
+# --- tools field presence ---
+
+
+async def test_no_registry_omits_tools_field(config_with_stub):
+    # Without a registry the request must be byte-for-byte the pre-tools
+    # behavior: no "tools" key at all (an empty tools:[] confuses backends).
+    cfg, stub = config_with_stub
+    await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"))
+    assert "tools" not in stub.requests[-1]
+
+
+async def test_empty_registry_schema_omits_tools_field(config_with_stub):
+    # A registry with zero tools (e.g. the MCP server exposed nothing after
+    # filtering) behaves exactly like no registry.
+    cfg, stub = config_with_stub
+    await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"), StubToolRegistry())
+    assert "tools" not in stub.requests[-1]
+
+
+# --- the tool loop ---
+
+
+def _tool_call_message(call_id: str = "call_1", name: str = "get_weather", arguments: str = '{"city": "Moscow"}'):
+    return {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+        ],
+    }
+
+
+async def test_tool_loop_roundtrip(config_with_stub):
+    # 1st request -> tool_calls; the registry executes; the result travels
+    # back as role="tool"; the 2nd request produces the final answer.
+    cfg, stub = config_with_stub
+    stub.script = [_tool_call_message(), {"role": "assistant", "content": "sunny and warm"}]
+    registry = StubToolRegistry(schema=[{"type": "function", "function": {"name": "get_weather"}}], results=["sunny, +20C"])
+
+    answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="weather?"), registry)
+
+    assert answer == "sunny and warm"
+    assert registry.calls == [("get_weather", '{"city": "Moscow"}')]
+    assert "tools" in stub.requests[0]
+    second = stub.requests[1]["messages"]
+    assert second[-2] == {  # the assistant message reconstructed as a plain dict
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "get_weather", "arguments": '{"city": "Moscow"}'},
+            }
+        ],
+    }
+    assert second[-1] == {"role": "tool", "tool_call_id": "call_1", "content": "sunny, +20C"}
+
+
+async def test_parallel_tool_calls_all_fed_back(config_with_stub):
+    cfg, stub = config_with_stub
+    stub.script = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "call_a", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}},
+                {"id": "call_b", "type": "function", "function": {"name": "get_time", "arguments": "{}"}},
+            ],
+        },
+        {"role": "assistant", "content": "done"},
+    ]
+    registry = StubToolRegistry(schema=[{"type": "function", "function": {"name": "x"}}], results=["r1", "r2"])
+
+    answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"), registry)
+
+    assert answer == "done"
+    assert registry.calls == [("get_weather", "{}"), ("get_time", "{}")]
+    tool_messages = stub.requests[1]["messages"][-2:]
+    assert [m["tool_call_id"] for m in tool_messages] == ["call_a", "call_b"]
+    assert [m["content"] for m in tool_messages] == ["r1", "r2"]
+
+
+async def test_rounds_exhausted_returns_tool_failure(config_with_stub):
+    # tool_rounds=1: the first round executes, but when the model asks for
+    # tools again the budget is spent -> the honest failure text.
+    cfg, stub = config_with_stub
+    cfg.app.llm.tool_rounds = 1
+    stub.script = [
+        _tool_call_message(call_id="call_1"),
+        _tool_call_message(call_id="call_2"),
+    ]
+    registry = StubToolRegistry(schema=[{"type": "function", "function": {"name": "get_weather"}}], results=["r1"])
+
+    answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"), registry)
+
+    assert answer == cfg.app.messages.tool_failure
+    assert registry.calls == [("get_weather", '{"city": "Moscow"}')]  # the 2nd call never happened
+
+
+async def test_default_rounds_budget_is_two(config_with_stub):
+    # The default budget (tool_rounds=2) allows at most two tool rounds:
+    # three consecutive tool-call answers still stop at the failure notice.
+    cfg, stub = config_with_stub
+    stub.script = [
+        _tool_call_message(call_id="call_1"),
+        _tool_call_message(call_id="call_2"),
+        _tool_call_message(call_id="call_3"),
+    ]
+    registry = StubToolRegistry(schema=[{"type": "function", "function": {"name": "x"}}], results=["r1", "r2"])
+
+    answer = await ask_llm(make_client(cfg), cfg, Question(kind="text", text="q"), registry)
+
+    assert answer == cfg.app.messages.tool_failure
+    assert len(registry.calls) == 2
 
 
 async def test_thinking_none_omits_field(config_with_stub):

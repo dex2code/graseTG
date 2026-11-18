@@ -15,6 +15,10 @@ llm:
   temperature: 0.7         # creativity: 0 = deterministic, higher = more varied
   max_tokens: 1024         # upper bound for a single answer, in tokens
   timeout_seconds: 60      # give up on a slow model after this
+  # Max tool-call rounds per question (tools live in the `tools:` section
+  # below). Must be 1 or more: 0 would mean "advertise tools but never run
+  # them". Tools on/off is decided solely by the presence of tools.mcp.
+  tool_rounds: 2
   # Model "thinking" toggle, sent as chat_template_kwargs (vLLM/SGLang, Qwen3-style):
   #   true / false — send the field with this value
   #   null         — do not send the field at all (safest for plain OpenAI APIs)
@@ -31,6 +35,7 @@ system_prompt: |
 messages:
   ack: "Got it, thinking…"
   error: "Failed to get a response from the model. Please try again later."
+  tool_failure: "I couldn't fetch the external data needed to answer this. Please try again later."
   format_hint: |
     To ask a question, write it in the same message after the mention:
     "@{username} how do I cook borscht?"
@@ -40,3 +45,18 @@ messages:
   sticker_stub: "Nice sticker! I can't reply to stickers meaningfully yet."
   other_stub: "This message type is not supported yet — ask me with a text @mention."
   empty_answer: "The model returned an empty response."
+
+# External tools the model may call. The section is optional: absent ->
+# requests carry no `tools` field and the bot behaves as before.
+# Architecture (docs/mcp-tools-spec.md): exactly ONE MCP server, streamable
+# HTTP. Requires llama-server built with tool calling (run it with --jinja)
+# and a model that supports tool calls (Qwen3, Llama 3.x, ...).
+# A token, if the server needs one, never lives here: auth_env NAMES a
+# variable in .env (see .env.example).
+# tools:
+#   mcp:
+#     url: "http://home-server:8080/mcp"
+#     # auth_env: MCP_TOKEN
+#     timeout_seconds: 30            # per tool call
+#     # allow:                       # whitelist; default: every tool the server exposes
+#     #   - get_weather_forecast

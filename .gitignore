@@ -224,3 +224,5 @@ __marimo__/
 
 # Project-local settings (templates: config.example.yaml, .env.example)
 config.yaml
+
+docs/

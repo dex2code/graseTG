@@ -167,11 +167,16 @@ def handler(config):
 
 
 class StubLLMServer:
-    """A local OpenAI-compatible /chat/completions endpoint that captures request bodies."""
+    """A local OpenAI-compatible /chat/completions endpoint that captures request bodies.
+
+    Default: answers with `reply_content`. For tool-loop tests, `script`
+    holds raw assistant message dicts popped one per request (e.g. a
+    tool_calls message followed by a plain-content message)."""
 
     def __init__(self) -> None:
         self.requests: list[dict] = []
         self.reply_content = "ok"
+        self.script: list[dict] = []
         self._server = HTTPServer(("127.0.0.1", 0), self._make_handler())
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
@@ -188,6 +193,12 @@ class StubLLMServer:
             def do_POST(self):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 stub.requests.append(json.loads(body))
+                if stub.script:
+                    message = stub.script.pop(0)
+                    finish_reason = "tool_calls" if message.get("tool_calls") else "stop"
+                else:
+                    message = {"role": "assistant", "content": stub.reply_content}
+                    finish_reason = "stop"
                 resp = json.dumps(
                     {
                         "id": "x",
@@ -197,8 +208,8 @@ class StubLLMServer:
                         "choices": [
                             {
                                 "index": 0,
-                                "message": {"role": "assistant", "content": stub.reply_content},
-                                "finish_reason": "stop",
+                                "message": message,
+                                "finish_reason": finish_reason,
                             }
                         ],
                         "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
@@ -232,3 +243,20 @@ def config_with_stub(config, llm_stub):
     """Config whose LLM endpoint points at the local stub server."""
     config.secrets.llm_base_url = llm_stub.base_url
     return config, llm_stub
+
+
+class StubToolRegistry:
+    """Offline ToolRegistry for the tool loop: a fixed schema and canned
+    execute() results, recording every (name, arguments) call."""
+
+    def __init__(self, schema: list[dict] | None = None, results: list[str] | None = None) -> None:
+        self._schema = list(schema or [])
+        self._results = list(results or [])
+        self.calls: list[tuple[str, str]] = []
+
+    def openai_schema(self) -> list[dict]:
+        return list(self._schema)
+
+    async def execute(self, name: str, arguments_json: str) -> str:
+        self.calls.append((name, arguments_json))
+        return self._results.pop(0) if self._results else "stub tool result"

@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from dotenv import dotenv_values
@@ -50,6 +51,11 @@ class LlmSettings(BaseModel):
     # true / false — send the field; None — do not send it at all
     # (safe for vanilla OpenAI-compatible APIs like api.openai.com).
     enable_thinking: bool | None = None
+    # Max tool-call rounds per question (docs/mcp-tools-spec.md §4): the model
+    # may request tool executions up to this many times. ge=1 on purpose: 0
+    # would mean "advertise tools, but never run them" — a trap. Tools on/off
+    # is governed solely by the tools: section below.
+    tool_rounds: int = Field(default=2, ge=1)
 
 
 class MessagesSettings(BaseModel):
@@ -94,6 +100,12 @@ class MessagesSettings(BaseModel):
         min_length=1,
     )
     empty_answer: str = Field(default="The model returned an empty response.", min_length=1)
+    # The tool-call budget (llm.tool_rounds) ran out while the model kept
+    # asking for tools — an honest failure notice, not a silent stop.
+    tool_failure: str = Field(
+        default="I couldn't fetch the external data needed to answer this. Please try again later.",
+        min_length=1,
+    )
 
     @model_validator(mode="after")
     def _check_format_hint_placeholders(self) -> "MessagesSettings":
@@ -104,6 +116,53 @@ class MessagesSettings(BaseModel):
         except (KeyError, IndexError) as error:
             raise ValueError(f"messages.format_hint has an unknown placeholder: {error}") from error
         return self
+
+
+class McpSettings(BaseModel):
+    """The single MCP server (streamable HTTP) exposing tools to the model.
+
+    Architecture (docs/mcp-tools-spec.md §1.1): exactly one server. There is
+    deliberately NO list here — describing a second server must be impossible
+    in the config, not merely unhandled. Tool names are passed to the model
+    as the server publishes them (no rename, no prefixes).
+
+    The token value lives in .env; the config holds only the env var NAME
+    (auth_env), read by the bridge at startup. Secrets never enter config.yaml.
+    """
+
+    # Unknown keys are a config typo: fail at startup instead of silently
+    # keeping the default for that setting.
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=1)  # streamable HTTP endpoint of the MCP server
+    # Name of the environment variable holding the bearer token (.env).
+    # Empty = connect without auth.
+    auth_env: str = ""
+    timeout_seconds: float = Field(default=30.0, gt=0)  # per call_tool request
+    # Optional whitelist of tool names; empty = expose every discovered tool.
+    # Every tool description goes into every request — filtering saves tokens.
+    allow: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _check_url_is_http(self) -> "McpSettings":
+        """A non-http(s) url can only be a typo (the bridge speaks streamable
+        HTTP): fail at startup, not on the first connection attempt."""
+        parts = urlsplit(self.url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            raise ValueError(f"tools.mcp.url must be an http(s) URL, got {self.url!r}")
+        return self
+
+
+class ToolsSettings(BaseModel):
+    """External tools for the LLM. Absent/empty = tools are fully disabled:
+    requests carry no `tools` field at all and the bot behaves exactly as
+    it did before tools existed (docs/mcp-tools-spec.md §7)."""
+
+    # Unknown keys are a config typo: fail at startup instead of silently
+    # ignoring the misspelled setting.
+    model_config = ConfigDict(extra="forbid")
+
+    mcp: McpSettings | None = None
 
 
 class AppConfig(BaseModel):
@@ -122,6 +181,7 @@ class AppConfig(BaseModel):
     )
     llm: LlmSettings = LlmSettings()
     messages: MessagesSettings = MessagesSettings()
+    tools: ToolsSettings = ToolsSettings()
 
 
 class Config(BaseModel):

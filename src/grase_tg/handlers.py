@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from .config import Config, MessagesSettings
 from .content import BotIdentity, Question, QuestionKind, extract_question
 from .llm import ask_llm
+from .tools import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -123,16 +124,18 @@ def stub_texts(messages: MessagesSettings) -> dict[QuestionKind, str]:
 def service_texts(messages: MessagesSettings, bot_username: str) -> frozenset[str]:
     """Everything the bot may send that is NOT a real answer.
 
-    The ack, error and stub notices, the empty-answer fallback and the rendered
-    format hint. Replying to one of them must not feed the text back to the
-    model as fake "assistant said" context — strip_service_context filters on
-    this set. Built from the configured values so translated texts are covered.
+    The ack, error and stub notices, the empty-answer and tool-failure
+    fallbacks and the rendered format hint. Replying to one of them must not
+    feed the text back to the model as fake "assistant said" context —
+    strip_service_context filters on this set. Built from the configured
+    values so translated texts are covered.
     """
     return frozenset(
         {
             messages.ack,
             messages.error,
             messages.empty_answer,
+            messages.tool_failure,
             messages.media_stub,
             messages.audio_stub,
             messages.sticker_stub,
@@ -166,7 +169,15 @@ def is_reply_to_pending_ack(question: Question, ack_text: str) -> bool:
     return question.context == ack_text
 
 
-def build_router(config: Config, llm_client: AsyncOpenAI, bot: BotIdentity) -> Router:
+def build_router(
+    config: Config,
+    llm_client: AsyncOpenAI,
+    bot: BotIdentity,
+    tools: ToolRegistry | None = None,
+) -> Router:
+    """Build the family router. `tools` is None (or empty) when no MCP server
+    is configured — the text pipeline then runs exactly as before, in one
+    stateless request (docs/mcp-tools-spec.md §4)."""
     router = Router(name="family")
     messages = config.app.messages
     stubs = stub_texts(messages)
@@ -203,7 +214,12 @@ def build_router(config: Config, llm_client: AsyncOpenAI, bot: BotIdentity) -> R
             if ack is None:
                 return  # could not even ack — the log holds the reason
             try:
-                answer = await ask_llm(llm_client, config, strip_service_context(question, non_answers))
+                answer = await ask_llm(
+                    llm_client,
+                    config,
+                    strip_service_context(question, non_answers),
+                    tools,
+                )
             except Exception:
                 logger.exception("LLM request failed")
                 await edit_ack(ack, messages.error, message)

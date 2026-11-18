@@ -312,3 +312,71 @@ def test_empty_secret_values_are_rejected(tmp_path, env_isolated):
         load_config(tmp_path)
     message = str(exc.value)
     assert "bot_token" in message and "llm_api_key" in message and "llm_base_url" in message
+
+
+# --- tools (MCP) ---
+
+
+def test_tools_default_to_disabled(tmp_path, env_isolated):
+    # No tools section = tools fully disabled: the loop must send no `tools`
+    # field at all (behavior identical to the pre-tools bot).
+    _write(tmp_path, env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+    """)
+    cfg = load_config(tmp_path)
+    assert cfg.app.tools.mcp is None
+    assert cfg.app.llm.tool_rounds == 2
+    assert cfg.app.messages.tool_failure  # the honest-failure notice has a default
+
+
+def test_mcp_settings_loaded(tmp_path, env_isolated):
+    _write(
+        tmp_path,
+        yaml_text="""
+        tools:
+          mcp:
+            url: http://mcp.test:8080/mcp
+            auth_env: MCP_TOKEN
+            timeout_seconds: 10
+            allow: [get_forecast, get_exchange_rate]
+        """,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    mcp = load_config(tmp_path).app.tools.mcp
+    assert mcp is not None
+    assert mcp.url == "http://mcp.test:8080/mcp"
+    assert mcp.auth_env == "MCP_TOKEN"
+    assert mcp.timeout_seconds == 10
+    assert mcp.allow == ["get_forecast", "get_exchange_rate"]
+
+
+@pytest.mark.parametrize(
+    ("tools_yaml", "bad_piece"),
+    [
+        ("tools:\n  mcpp:\n    url: http://x/mcp", "mcpp"),  # typo in the section name
+        ("tools:\n  mcp:\n    urll: http://x/mcp", "urll"),  # typo in a field name
+        ("tools:\n  mcp:\n    url: not-a-url", "http(s) URL"),  # no scheme/host
+        ("tools:\n  mcp:\n    url: ftp://mcp.test/mcp", "http(s) URL"),  # wrong scheme
+        ("tools:\n  mcp:\n    timeout_seconds: 0", "timeout_seconds"),
+        ("llm:\n  tool_rounds: 0", "tool_rounds"),  # 0 would advertise tools but never run them
+    ],
+)
+def test_tools_config_errors_fail_at_startup(tmp_path, env_isolated, tools_yaml, bad_piece):
+    _write(
+        tmp_path,
+        yaml_text=tools_yaml,
+        env_text=f"""
+        BOT_TOKEN={ENV['BOT_TOKEN']}
+        LLM_API_KEY={ENV['LLM_API_KEY']}
+        LLM_BASE_URL={ENV['LLM_BASE_URL']}
+        """,
+    )
+    with pytest.raises(ValidationError) as exc:
+        load_config(tmp_path)
+    assert bad_piece in str(exc.value)

@@ -12,7 +12,7 @@ import pytest
 from aiogram.types import Chat, Message
 
 import grase_tg.handlers as handlers_module
-from conftest import BOT, BOT_MENTION, BOT_USERNAME, FakeAck, bot_message, mention_entities_for
+from conftest import BOT, BOT_MENTION, BOT_USERNAME, FakeAck, StubToolRegistry, bot_message, mention_entities_for
 
 from grase_tg.config import MessagesSettings
 from grase_tg.content import QuestionKind
@@ -81,7 +81,7 @@ async def test_filter_rejects_unknown_chat_and_logs_once(caplog):
 # --- routing through the handler ---
 
 async def test_text_question_goes_to_llm_pipeline(handler, config, make_message, monkeypatch):
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         return "A" * 9000  # forces chunking
 
     monkeypatch.setattr(handlers_module, "ask_llm", ok)
@@ -95,7 +95,7 @@ async def test_text_question_goes_to_llm_pipeline(handler, config, make_message,
 
 
 async def test_llm_failure_edits_ack_with_error_text(handler, config, make_message, monkeypatch):
-    async def fail(client, cfg, question):
+    async def fail(client, cfg, question, tools):
         raise RuntimeError("LLM down")
 
     monkeypatch.setattr(handlers_module, "ask_llm", fail)
@@ -127,7 +127,7 @@ async def test_unaddressed_messages_are_silent(handler, make_message):
 async def test_reply_to_bot_text_goes_to_llm_pipeline(handler, config, make_message, monkeypatch):
     captured: dict = {}
 
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         captured["question"] = question
         return "the answer"
 
@@ -143,7 +143,7 @@ async def test_reply_to_bot_text_goes_to_llm_pipeline(handler, config, make_mess
 async def test_replied_bot_answer_reaches_llm_as_context(handler, make_message, monkeypatch):
     captured: dict = {}
 
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         captured["question"] = question
         return "answer"
 
@@ -158,7 +158,7 @@ async def test_reply_with_mention_keeps_context_up_to_llm(handler, make_message,
     # semantics, the replied-to answer still travels as context.
     captured: dict = {}
 
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         captured["question"] = question
         return "answer"
 
@@ -175,7 +175,7 @@ async def test_reply_with_mention_to_hint_strips_context(handler, config, make_m
     # the hint into the LLM request as fake dialogue context.
     captured: dict = {}
 
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         captured["question"] = question
         return "answer"
 
@@ -193,7 +193,7 @@ async def test_reply_to_service_texts_carries_no_context(handler, config, make_m
     # replies to the pending ack are skipped entirely — see the tests below.)
     captured: dict = {}
 
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         captured["question"] = question
         return "answer"
 
@@ -202,6 +202,7 @@ async def test_reply_to_service_texts_carries_no_context(handler, config, make_m
     service_texts = [
         messages.error,
         messages.empty_answer,
+        messages.tool_failure,
         messages.media_stub,
         messages.format_hint.format(username=BOT_USERNAME),
     ]
@@ -217,7 +218,7 @@ async def test_ack_skip_uses_configured_text(handler, config, make_message, monk
     # a reply to the translated pending ack is skipped before the LLM is called.
     captured: dict = {}
 
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         captured["question"] = question
         return "answer"
 
@@ -245,7 +246,7 @@ async def test_ack_skip_uses_configured_text(handler, config, make_message, monk
 async def test_reply_to_pending_ack_is_skipped(handler, config, make_message, monkeypatch):
     # While the model is generating, the user's addition to the pending ack
     # is skipped by design: no second LLM call, no reply — wait for the answer.
-    async def boom(client, cfg, question):
+    async def boom(client, cfg, question, tools):
         raise AssertionError("LLM must not be called for a reply to the pending ack")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
@@ -255,7 +256,7 @@ async def test_reply_to_pending_ack_is_skipped(handler, config, make_message, mo
 
 
 async def test_reply_to_pending_ack_with_mention_is_skipped(handler, config, make_message, monkeypatch):
-    async def boom(client, cfg, question):
+    async def boom(client, cfg, question, tools):
         raise AssertionError("LLM must not be called for a reply to the pending ack")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
@@ -270,7 +271,7 @@ async def test_reply_to_pending_ack_with_mention_is_skipped(handler, config, mak
 
 
 async def test_voice_reply_to_pending_ack_is_skipped(handler, config, make_message, monkeypatch):
-    async def boom(client, cfg, question):
+    async def boom(client, cfg, question, tools):
         raise AssertionError("LLM must not be called for a reply to the pending ack")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
@@ -283,7 +284,7 @@ async def test_reply_to_error_text_still_asks_the_llm(handler, config, make_mess
     # The error text is not an ack: a reply to it is a legitimate retry.
     captured: dict = {}
 
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         captured["question"] = question
         return "answer"
 
@@ -308,8 +309,30 @@ def test_strip_service_context_keeps_real_answers():
     assert strip_service_context(untouched, non_answers) is untouched
 
 
+async def test_router_passes_registry_to_ask_llm(config, make_message, monkeypatch):
+    # The wiring: the registry built at startup must travel through the
+    # router into ask_llm — the tool loop cannot work without it.
+    captured: dict = {}
+
+    async def ok(client, cfg, question, tools):
+        captured["tools"] = tools
+        return "answer"
+
+    monkeypatch.setattr(handlers_module, "ask_llm", ok)
+    registry = StubToolRegistry()
+    from grase_tg.handlers import build_router
+    from grase_tg.llm import make_client
+
+    router = build_router(config, make_client(config), BOT, registry)
+    handler = router.observers["message"].handlers[0].callback
+    text = f"{BOT_MENTION} hi"
+    m = make_message(text, mention_entities_for(text))
+    await handler(m)
+    assert captured["tools"] is registry
+
+
 async def test_reply_to_bot_with_voice_gets_audio_stub(handler, config, make_message, monkeypatch):
-    async def boom(client, cfg, question):  # stubs must not touch the LLM
+    async def boom(client, cfg, question, tools):  # stubs must not touch the LLM
         raise AssertionError("LLM must not be called for stubs")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
@@ -319,7 +342,7 @@ async def test_reply_to_bot_with_voice_gets_audio_stub(handler, config, make_mes
 
 
 async def test_reply_to_bot_with_sticker_gets_sticker_stub(handler, config, make_message, monkeypatch):
-    async def boom(client, cfg, question):  # stubs must not touch the LLM
+    async def boom(client, cfg, question, tools):  # stubs must not touch the LLM
         raise AssertionError("LLM must not be called for stubs")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
@@ -329,7 +352,7 @@ async def test_reply_to_bot_with_sticker_gets_sticker_stub(handler, config, make
 
 
 async def test_addressed_media_gets_stub(handler, config, make_message, monkeypatch):
-    async def boom(client, cfg, question):  # the stub path must not touch the LLM
+    async def boom(client, cfg, question, tools):  # the stub path must not touch the LLM
         raise AssertionError("LLM must not be called for stubs")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
@@ -367,7 +390,7 @@ async def test_stub_routing_by_kind(handler, make_message, monkeypatch, kind, ex
 
 
 async def test_ack_send_failure_skips_llm_and_is_contained(handler, make_message, monkeypatch):
-    async def boom(client, cfg, question):
+    async def boom(client, cfg, question, tools):
         raise AssertionError("LLM must not be called when the ack cannot be sent")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
@@ -383,7 +406,7 @@ async def test_ack_send_failure_skips_llm_and_is_contained(handler, make_message
 
 
 async def test_error_edit_failure_falls_back_to_plain_reply(handler, config, make_message, monkeypatch):
-    async def fail(client, cfg, question):
+    async def fail(client, cfg, question, tools):
         raise RuntimeError("LLM down")
 
     monkeypatch.setattr(handlers_module, "ask_llm", fail)
@@ -402,7 +425,7 @@ async def test_error_edit_failure_falls_back_to_plain_reply(handler, config, mak
 
 
 async def test_answer_edit_failure_resends_all_chunks(handler, config, make_message, monkeypatch):
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         return "A" * 9000  # forces chunking
 
     monkeypatch.setattr(handlers_module, "ask_llm", ok)
@@ -418,7 +441,7 @@ async def test_answer_edit_failure_resends_all_chunks(handler, config, make_mess
 
 
 async def test_partial_delivery_failure_resends_only_missing_chunks(handler, config, make_message, monkeypatch):
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         return "A" * 9000  # forces chunking
 
     monkeypatch.setattr(handlers_module, "ask_llm", ok)
@@ -435,7 +458,7 @@ async def test_partial_delivery_failure_resends_only_missing_chunks(handler, con
 
 
 async def test_fallback_send_failure_is_contained(handler, config, make_message, monkeypatch):
-    async def ok(client, cfg, question):
+    async def ok(client, cfg, question, tools):
         return "answer"
 
     monkeypatch.setattr(handlers_module, "ask_llm", ok)
@@ -456,7 +479,7 @@ async def test_fallback_send_failure_is_contained(handler, config, make_message,
 
 
 async def test_stub_reply_failure_is_contained(handler, make_message, monkeypatch):
-    async def boom(client, cfg, question):
+    async def boom(client, cfg, question, tools):
         raise AssertionError("LLM must not be called for stubs")
 
     monkeypatch.setattr(handlers_module, "ask_llm", boom)
