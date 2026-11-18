@@ -39,6 +39,23 @@ def _date_line(now: datetime | None = None) -> str:
     return f"Current date: {now:%Y-%m-%d} ({_WEEKDAYS[now.weekday()]}), UTC{offset[:3]}:{offset[3:]}."
 
 
+def _user_content(question: Question) -> str:
+    """The user message sent to the model: the question, optionally prefixed
+    with the quoted message of another participant.
+
+    The quote travels INSIDE the single user turn, clearly marked with "> "
+    (chat-quoting convention the models know): one turn keeps the dialogue
+    structure on every OpenAI-compatible backend, and the marker keeps the
+    model from attributing the quote to the asker. Without a quote the
+    content is exactly the question text — byte-for-byte the pre-quote
+    request.
+    """
+    if question.quote is None:
+        return question.text
+    quoted = "\n".join(f"> {line}" for line in question.quote.splitlines())
+    return f"Replying to another chat participant's message:\n{quoted}\n\n{question.text}"
+
+
 def _build_messages(config: Config, question: Question) -> list[ChatCompletionMessageParam]:
     """Build the chat/completions payload.
 
@@ -62,7 +79,7 @@ def _build_messages(config: Config, question: Question) -> list[ChatCompletionMe
     ]
     if question.context is not None:
         messages.append({"role": "assistant", "content": question.context})
-    messages.append({"role": "user", "content": question.text})
+    messages.append({"role": "user", "content": _user_content(question)})
     return messages
 
 

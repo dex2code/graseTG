@@ -40,14 +40,14 @@ def mention_entities_for(text: str, username: str = BOT_USERNAME) -> list:
     return entities
 
 
-def bot_message(message_id: int = 1, text: str = "") -> SimpleNamespace:
+def bot_message(message_id: int = 1, text: str = "", caption: str = "") -> SimpleNamespace:
     """A duck-typed message authored by the bot, for use as reply_to_message."""
-    return SimpleNamespace(message_id=message_id, from_user=SimpleNamespace(id=BOT_USER_ID), text=text)
+    return SimpleNamespace(message_id=message_id, from_user=SimpleNamespace(id=BOT_USER_ID), text=text, caption=caption)
 
 
-def human_message(message_id: int = 1, text: str = "") -> SimpleNamespace:
+def human_message(message_id: int = 1, text: str = "", caption: str = "") -> SimpleNamespace:
     """A duck-typed message authored by some other user."""
-    return SimpleNamespace(message_id=message_id, from_user=SimpleNamespace(id=999), text=text)
+    return SimpleNamespace(message_id=message_id, from_user=SimpleNamespace(id=999), text=text, caption=caption)
 
 
 class FakeAck:

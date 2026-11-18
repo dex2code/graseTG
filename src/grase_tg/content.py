@@ -20,6 +20,10 @@ without a dedicated handler, handlers.py answers with the "other" stub.
 Unaddressed messages always produce None -> silence, never a reply.
 A reply-addressed Question carries the text of the bot message the user
 replied to in Question.context (one level of dialogue context for the LLM).
+A question addressed via @mention while REPLYING TO ANOTHER PARTICIPANT's
+message carries that message in Question.quote — the quote travels inside
+the user message, clearly marked, so the model sees what the question is
+about.
 When a mention and a reply are both present, the mention shapes the question
 text and the reply still contributes its context.
 Adding a new content type = adding one extractor to EXTRACTORS and a handler
@@ -59,6 +63,13 @@ class Question:
     # of dialogue context for the LLM. None when addressed via @mention or
     # when the replied-to message has no text.
     context: str | None = None
+    # Another participant's message the user replied to while addressing the
+    # bot via @mention: quoted context, so "reply to A's message + @bot" lets
+    # the model see what the question is about. Mutually exclusive with
+    # `context` by construction (a reply points at either the bot or a human)
+    # and always None unless the message is addressed. Human text — same
+    # privacy class as Question.text: never logged.
+    quote: str | None = None
 
 
 def _utf16_to_py_index(text: str, utf16_pos: int) -> int:
@@ -93,24 +104,31 @@ def _find_mention_span(
     return None
 
 
-def _is_reply_to_bot(message: Message, bot_user_id: int) -> bool:
-    """True when the message is an explicit reply to one of the bot's messages.
+def _explicit_reply(message: Message) -> Message | None:
+    """The message explicitly replied to, or None.
 
     In forum topics Telegram attaches an implicit "reply" link to the topic
-    root message on every message; that is threading, not addressing, so it is
-    excluded (an explicit reply to the bot points at the bot's message, which
-    can never be the topic root — that is a service message from a human).
+    root message on every message; that is threading, not addressing or
+    quoting, so it is excluded (an explicit reply to the bot points at the
+    bot's message, which can never be the topic root — that is a service
+    message from a human).
     """
     replied = message.reply_to_message
-    if replied is None or replied.from_user is None or replied.from_user.id != bot_user_id:
-        return False
+    if replied is None:
+        return None
     if (
         message.is_topic_message
         and message.message_thread_id is not None
         and replied.message_id == message.message_thread_id
     ):
-        return False
-    return True
+        return None
+    return replied
+
+
+def _is_reply_to_bot(message: Message, bot_user_id: int) -> bool:
+    """True when the message is an explicit reply to one of the bot's messages."""
+    replied = _explicit_reply(message)
+    return replied is not None and replied.from_user is not None and replied.from_user.id == bot_user_id
 
 
 def _reply_context(message: Message) -> str | None:
@@ -121,6 +139,24 @@ def _reply_context(message: Message) -> str | None:
     """
     replied = message.reply_to_message
     text = (replied.text or "").strip() if replied is not None else ""
+    return text or None
+
+
+def _reply_quote(message: Message, bot_user_id: int) -> str | None:
+    """Text of the OTHER PARTICIPANT's message being replied to, for quoting.
+
+    The counterpart of _reply_context: when a question addressed via @mention
+    is a reply to another participant's message, that message travels along
+    as Question.quote (text or caption). The bot's own messages are excluded
+    — quoting them is the context path; from_user None (anonymous admin) is
+    a human message and IS quoted. Never empty when not None.
+    """
+    replied = _explicit_reply(message)
+    if replied is None:
+        return None
+    if replied.from_user is not None and replied.from_user.id == bot_user_id:
+        return None
+    text = (replied.text or replied.caption or "").strip()
     return text or None
 
 
@@ -145,9 +181,10 @@ def extract_text(message: Message, bot: BotIdentity) -> Question | None:
         return None
     is_reply = _is_reply_to_bot(message, bot.user_id)
     context = _reply_context(message) if is_reply else None
+    quote = _reply_quote(message, bot.user_id)
     span = _find_mention_span(message.text, message.entities, bot.username)
     if span is not None:
-        return Question(kind="text", text=_question_around(message.text, span), context=context)
+        return Question(kind="text", text=_question_around(message.text, span), context=context, quote=quote)
     if is_reply:
         return Question(kind="text", text=message.text.strip(), context=context)
     return None
@@ -165,9 +202,12 @@ def extract_media(message: Message, bot: BotIdentity) -> Question | None:
         return None
     is_reply = _is_reply_to_bot(message, bot.user_id)
     context = _reply_context(message) if is_reply else None
+    quote = _reply_quote(message, bot.user_id)
     span = _find_mention_span(message.caption, message.caption_entities, bot.username)
     if span is not None:
-        return Question(kind="media", text=_question_around(message.caption or "", span), image=None, context=context)
+        return Question(
+            kind="media", text=_question_around(message.caption or "", span), image=None, context=context, quote=quote
+        )
     if is_reply:
         return Question(kind="media", text=(message.caption or "").strip(), image=None, context=context)
     return None

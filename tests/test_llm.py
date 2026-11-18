@@ -58,6 +58,47 @@ def test_build_messages_rejects_non_text():
         _build_messages(_config(), Question(kind="media", text="x"))
 
 
+# --- quoted human message (reply to a participant + @mention) ---
+
+
+def test_build_messages_without_quote_is_the_bare_question():
+    # Byte-for-byte: without a quote the user message is exactly the question
+    # text — the pre-quote request shape.
+    messages = _build_messages(_config(), Question(kind="text", text="plain question"))
+    assert messages[1:] == [{"role": "user", "content": "plain question"}]
+
+
+def test_build_messages_renders_quote_inside_the_user_turn():
+    # The quote is NOT a dialogue turn of its own: it is marked with "> "
+    # inside the single user message, so the model cannot attribute it to
+    # the asker and the turn structure stays valid on every backend.
+    messages = _build_messages(
+        _config(),
+        Question(kind="text", text="что он имел в виду?", quote="борщ\nварить 2 часа"),
+    )
+    assert [m["role"] for m in messages] == ["system", "user"]
+    assert messages[1:] == [
+        {
+            "role": "user",
+            "content": "Replying to another chat participant's message:\n> борщ\n> варить 2 часа\n\nчто он имел в виду?",
+        }
+    ]
+
+
+def test_build_messages_quote_and_context_coexist():
+    # The extractors set at most one of the two (a reply points at either the
+    # bot or a human), but the builder treats the fields independently: an
+    # assistant context and a quote render in their own places regardless.
+    messages = _build_messages(
+        _config(),
+        Question(kind="text", text="а теперь?", context="prev answer", quote="цитата"),
+    )
+    assert messages[1:] == [
+        {"role": "assistant", "content": "prev answer"},
+        {"role": "user", "content": "Replying to another chat participant's message:\n> цитата\n\nа теперь?"},
+    ]
+
+
 # --- ask_llm against the stub server ---
 
 async def test_ask_llm_sends_full_payload(config_with_stub):

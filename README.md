@@ -18,6 +18,11 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
   to one of the bot's messages. Unaddressed messages are silently ignored.
   A mention and a reply combined: the mention shapes the question text, the
   reply still contributes its context.
+- A question asked in **reply to another participant's message** (with an
+  @mention) carries that message as a clearly marked quote — the model sees
+  what the question is about ("@bot what did he mean?" while replying to a
+  recipe). A reply to another participant WITHOUT an @mention is still
+  ignored — plain chat must stay silent.
 - Edited messages are not re-answered — only new messages are processed.
 - Only **text questions** are answered by the LLM. Addressed photos, videos,
   GIFs and documents are answered with a "can't analyze attachments yet" stub.
@@ -29,11 +34,13 @@ A family Telegram bot: answers questions in whitelisted group chats via an LLM.
 - The current date is injected into every request ("tomorrow" must resolve
   to a real date). If a `tools:` section is configured, the model may call
   tools exposed by one MCP server — see "External tools (MCP)" below.
-- No memory: every question is processed independently. The one exception:
+- No memory: every question is processed independently. The two exceptions:
   a reply to a bot answer carries that answer into the request as dialogue
   context, so follow-up questions ("and what about chicken?") keep their
-  referent. Replies to the ack, stubs and error notices carry no context;
-  replying to one chunk of a long answer carries only that chunk.
+  referent; a reply to another participant's message (with an @mention)
+  carries that message as a marked quote inside the question. Replies to the
+  ack, stubs and error notices carry no context; replying to one chunk of a
+  long answer carries only that chunk.
 - Privacy: question texts are never written to logs — only the chat id and
   the question length.
 - Updates that arrived while the bot was offline are discarded on startup —

@@ -136,11 +136,14 @@ def test_mention_without_reply_has_no_context(make_message):
     assert q is not None and q.context is None
 
 
-def test_mention_in_reply_to_human_has_no_context(make_message):
+def test_mention_in_reply_to_human_quotes_the_message(make_message):
+    # The user asks ABOUT another participant's message (reply + @mention):
+    # the quote travels with the question. context stays None — that field is
+    # for the bot's own dialogue answers only.
     text = f"{BOT_MENTION} hi"
     m = make_message(text, mention_entities_for(text), reply_to_message=human_message(text="old"))
     q = extract_text(m, BOT)
-    assert q is not None and q.context is None
+    assert q is not None and q.context is None and q.quote == "old"
 
 
 def test_reply_to_blank_bot_message_has_no_context(make_message):
@@ -159,6 +162,61 @@ def test_reply_that_also_mentions_prefers_mention_semantics(make_message):
     m = make_message(text, mention_entities_for(text), reply_to_message=bot_message())
     q = extract_text(m, BOT)
     assert q is not None and q.text == "cook borscht"
+
+
+def test_mention_plus_reply_to_bot_sets_context_not_quote(make_message):
+    # Mutual exclusivity by construction: a reply to the BOT is assistant
+    # dialogue context, never a quote of "another participant".
+    text = f"{BOT_MENTION} and the chicken?"
+    m = make_message(text, mention_entities_for(text), reply_to_message=bot_message(text="Борщ: 2 часа."))
+    q = extract_text(m, BOT)
+    assert q is not None and q.context == "Борщ: 2 часа." and q.quote is None
+
+
+def test_topic_thread_link_to_human_message_is_not_quoted(make_message):
+    # The implicit forum-topic "reply" to the topic root is threading, not
+    # quoting: a mention-addressed message in a topic carries no quote.
+    text = f"{BOT_MENTION} hi"
+    m = make_message(
+        text,
+        mention_entities_for(text),
+        reply_to_message=human_message(message_id=500, text="topic root"),
+        is_topic_message=True,
+        message_thread_id=500,
+    )
+    q = extract_text(m, BOT)
+    assert q is not None and q.quote is None
+
+
+def test_reply_to_anonymous_admin_is_quoted(make_message):
+    # from_user None (anonymous group admin / channel post) is a human
+    # message, not the bot's: quoteable.
+    text = f"{BOT_MENTION} what did they mean?"
+    replied = SimpleNamespace(message_id=7, from_user=None, text="борщ варить 2 часа", caption="")
+    m = make_message(text, mention_entities_for(text), reply_to_message=replied)
+    q = extract_text(m, BOT)
+    assert q is not None and q.quote == "борщ варить 2 часа" and q.context is None
+
+
+def test_mention_in_reply_to_blank_human_message_has_no_quote(make_message):
+    text = f"{BOT_MENTION} hi"
+    m = make_message(text, mention_entities_for(text), reply_to_message=human_message(text="   "))
+    q = extract_text(m, BOT)
+    assert q is not None and q.quote is None
+
+
+def test_media_mention_in_reply_to_human_quotes_caption(make_message):
+    # The reply points at another participant's photo: its caption is the
+    # quote (the payload itself is not fetched — same as the bot's own media).
+    caption = f"{BOT_MENTION} what is on it?"
+    m = make_message(
+        photo=True,
+        caption=caption,
+        caption_entities=mention_entities_for(caption),
+        reply_to_message=human_message(text="", caption="борщ на столе"),
+    )
+    q = extract_media(m, BOT)
+    assert q is not None and q.quote == "борщ на столе" and q.context is None
 
 
 def test_topic_thread_link_to_bot_message_is_not_addressing(make_message):

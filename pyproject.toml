@@ -1,6 +1,6 @@
 [project]
 name = "grase-tg"
-version = "0.2.2"
+version = "0.3.0"
 description = "Family Telegram bot: answers @mentions in whitelisted group chats via an OpenAI-compatible LLM API"
 readme = "README.md"
 license = "MIT"
