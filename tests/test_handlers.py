@@ -6,6 +6,7 @@ not via literals: the texts are configurable in config.yaml.
 
 import logging
 from datetime import datetime, timezone
+from typing import cast
 
 import pytest
 from aiogram.types import Chat, Message
@@ -14,6 +15,7 @@ import grase_tg.handlers as handlers_module
 from conftest import BOT, BOT_MENTION, BOT_USERNAME, FakeAck, bot_message, mention_entities_for
 
 from grase_tg.config import MessagesSettings
+from grase_tg.content import QuestionKind
 from grase_tg.handlers import AllowedChatsFilter, split_text
 
 # Default texts: the single source is the config model, not test literals.
@@ -347,10 +349,15 @@ async def test_addressed_media_gets_stub(handler, config, make_message, monkeypa
     ],
 )
 async def test_stub_routing_by_kind(handler, make_message, monkeypatch, kind, expected):
-    # Dormant kinds cannot be produced by extractors yet — inject directly to test the routing table.
+    # The "other" fallback is the safety net for kinds the extractors do not
+    # produce yet: a deliberately outside-the-set kind is cast in to exercise it.
     from grase_tg.content import Question
 
-    monkeypatch.setattr(handlers_module, "extract_question", lambda m, u: Question(kind=kind, text=""))
+    monkeypatch.setattr(
+        handlers_module,
+        "extract_question",
+        lambda m, u: Question(kind=cast(QuestionKind, kind), text=""),
+    )
     m = make_message()
     await handler(m)
     assert m.sent == [expected]

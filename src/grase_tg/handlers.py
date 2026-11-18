@@ -13,7 +13,7 @@ from aiogram.types import Message
 from openai import AsyncOpenAI
 
 from .config import Config, MessagesSettings
-from .content import BotIdentity, Question, extract_question
+from .content import BotIdentity, Question, QuestionKind, extract_question
 from .llm import ask_llm
 
 logger = logging.getLogger(__name__)
@@ -106,10 +106,12 @@ async def edit_ack(ack: Message, text: str, fallback: Message | None = None) -> 
             await send_reply(fallback, text)
 
 
-def stub_texts(messages: MessagesSettings) -> dict[str, str]:
+def stub_texts(messages: MessagesSettings) -> dict[QuestionKind, str]:
     """Per-kind stub replies, taken from the configured texts.
 
     Text questions are answered by the real pipeline; stubs cover the rest.
+    A typo in a key would be flagged by the type checker, since the keys are
+    the QuestionKind literal; a kind without an entry lands in other_stub.
     """
     return {
         "media": messages.media_stub,

@@ -27,7 +27,7 @@ branch (stub or real) for its kind in handlers.py.
 """
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 
 from aiogram.enums import MessageEntityType
 from aiogram.types import Message
@@ -41,11 +41,18 @@ class BotIdentity:
     user_id: int
 
 
+# Kinds the system knows today. Static type checking prevents typos in every
+# constructor and lookup; at runtime there is deliberately NO validation —
+# an unknown kind from a future extractor still flows through and lands in
+# the "other" stub (the documented safety net).
+QuestionKind = Literal["text", "media", "audio", "sticker", "other"]
+
+
 @dataclass(frozen=True)
 class Question:
     """Message content, normalized across content types."""
 
-    kind: str                   # "text", "media", "audio", "sticker", "other"
+    kind: QuestionKind          # see QuestionKind above
     text: str                   # question text (message text or media caption)
     image: bytes | None = None  # photo payload, attached by extract_media in the future
     # The bot message the user replied to (reply addressing only): one level
